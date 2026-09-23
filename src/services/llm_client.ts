@@ -5,8 +5,18 @@
  */
 
 const OPENROUTER = "https://openrouter.ai/api/v1/chat/completions";
-export const TEXT_MODEL = "openai/gpt-oss-20b";
-export const IMAGE_MODEL = "google/gemma-4-26b-a4b-it";
+export const TEXT_MODEL = process.env.LLM_TEXT_MODEL || "openai/gpt-oss-20b";
+export const IMAGE_MODEL = process.env.LLM_IMAGE_MODEL || "google/gemma-4-26b-a4b-it";
+
+/**
+ * OpenRouter provider routing. "latency" by default: the same model on a slow
+ * provider took 15s for an 80-token reply, under 2s on the fastest one.
+ * LLM_PROVIDER_SORT=throughput|price picks another order, "off" leaves it to OpenRouter.
+ */
+function _routing(): Dict {
+  const sort = process.env.LLM_PROVIDER_SORT || "latency";
+  return sort === "off" ? {} : { provider: { sort } };
+}
 
 export interface Usage {
   model: string;
@@ -96,12 +106,14 @@ async function _call(payload: Dict, timeoutMs: number): Promise<[string, Usage]>
  * to prompt-only JSON on a 4xx). A parse or shape failure is retried up to
  * twice, but only while the whole call is still quick (the web route has 60s).
  */
-export async function textJson(system: string, user: string, opts: { schema?: Dict; maxTokens?: number; validate?: (p: any) => boolean } = {}): Promise<[any, Usage]> {
+export async function textJson(system: string, user: string, opts: { schema?: Dict; maxTokens?: number; timeoutMs?: number; validate?: (p: any) => boolean } = {}): Promise<[any, Usage]> {
+  const timeoutMs = opts.timeoutMs ?? 45000;
   const payload: Dict = {
     model: TEXT_MODEL,
     max_tokens: opts.maxTokens ?? 2000,
     temperature: 0,
     reasoning: { effort: "low" },
+    ..._routing(),
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
   };
   if (opts.schema) payload.response_format = { type: "json_schema", json_schema: { name: "bill", strict: true, schema: opts.schema } };
@@ -111,11 +123,11 @@ export async function textJson(system: string, user: string, opts: { schema?: Di
     try {
       let raw: string, usage: Usage;
       try {
-        [raw, usage] = await _call(payload, 45000);
+        [raw, usage] = await _call(payload, timeoutMs);
       } catch (e: any) {
         if (payload.response_format && e.status >= 400 && e.status < 500) {
           delete payload.response_format;
-          [raw, usage] = await _call(payload, 45000);
+          [raw, usage] = await _call(payload, timeoutMs);
         } else throw e;
       }
       const parsed = parseJson(raw);
@@ -134,15 +146,18 @@ export async function imageJson(system: string, image: { b64: string; mime: stri
     model: IMAGE_MODEL,
     max_tokens: opts.maxTokens ?? 3000,
     temperature: 0,
+    ..._routing(),
     messages: [
       { role: "system", content: system },
       { role: "user", content: [{ type: "image_url", image_url: { url: `data:${image.mime};base64,${image.b64}` } }, { type: "text", text }] },
     ],
   };
   let last: unknown = null;
-  for (let i = 0; i < 2; i++) {
+  // The web route has 60s: one try may take 50s, a retry only if the first failed fast.
+  const t0 = Date.now();
+  for (let i = 0; i < 2 && (i === 0 || Date.now() - t0 < 15000); i++) {
     try {
-      const [raw, usage] = await _call(payload, 90000);
+      const [raw, usage] = await _call(payload, 50000);
       const parsed = parseJson(raw);
       if (opts.validate && !opts.validate(parsed)) throw new Error("shape");
       return [parsed, usage];

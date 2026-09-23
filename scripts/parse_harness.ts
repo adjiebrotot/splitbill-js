@@ -5,7 +5,14 @@
  * matches exactly (amounts in minor units, members, mode, payer).
  *
  *   LLM_API_KEY=... npx tsx scripts/parse_harness.ts [--runs 3] [--only 4] [--raw]
- *   LLM_API_KEY=... npx tsx scripts/parse_harness.ts --receipt path/to/receipt.jpg ["caption"]
+ *   LLM_API_KEY=... npx tsx scripts/parse_harness.ts --receipt path/to/receipt.jpg ["caption"] [--currency SGD]
+ *   LLM_API_KEY=... npx tsx scripts/parse_harness.ts --receipts fixtures.json [--runs 3] [--only 2] [--raw]
+ *
+ * fixtures.json (keep it and the photos out of git; real receipts can hold
+ * personal data): [{ "file": "a.jpg", "currency": "IDR", "caption": "...",
+ *   "want": { "currency": "SGD", "items": ["600", "400"], "adj": { "tax": "795" },
+ *             "total": "12145", "payer": "Don", "members": [["Ali"], ["Bob", "Cal"]] } }]
+ * Item amounts compare in order; adjustments by kind (signed, summed per kind).
  */
 import { readFileSync } from "node:fs";
 import { parseChat, parseReceipt, type ParseCtx } from "../src/services/ai_parse";
@@ -57,14 +64,73 @@ function check(d: any, w: Want): string[] {
   return bad;
 }
 
+type ReceiptWant = { currency?: string; items?: (string | null)[]; adj?: Record<string, string>; total?: string | null; payer?: string; members?: string[][] };
+type Fixture = { file: string; currency?: string; caption?: string; want: ReceiptWant };
+
+function checkReceipt(d: any, w: ReceiptWant): string[] {
+  const bad: string[] = [];
+  const eq = (k: string, a: unknown, b: unknown) => { if (JSON.stringify(a) !== JSON.stringify(b)) bad.push(`${k}: got ${JSON.stringify(a)} want ${JSON.stringify(b)}`); };
+  if (w.currency) eq("currency", d.currency, w.currency);
+  if (w.items) eq("items", (d.items ?? []).map((i: any) => i.amount), w.items);
+  if (w.adj) {
+    const got: Record<string, string> = {};
+    for (const a of d.adjustments ?? []) got[a.kind] = (BigInt(got[a.kind] ?? "0") + BigInt(a.amount)).toString();
+    eq("adjustments", Object.fromEntries(Object.entries(got).sort()), Object.fromEntries(Object.entries(w.adj).sort()));
+  }
+  if (w.total !== undefined) eq("total", d.stated_total, w.total);
+  if (w.payer) eq("payer", d.payer, id(w.payer));
+  if (w.members) eq("members", (d.items ?? []).map((i: any) => [...i.members].sort()), w.members.map((ms) => ms.map(id).sort()));
+  return bad;
+}
+
+function reconcile(d: any): string {
+  const sum = (d.items ?? []).reduce((s: bigint, i: any) => s + BigInt(i.amount ?? "0"), 0n) + (d.adjustments ?? []).reduce((s: bigint, a: any) => s + BigInt(a.amount), 0n);
+  if (d.stated_total == null) return `lines ${sum}, no printed total`;
+  const gap = BigInt(d.stated_total) - sum;
+  return gap === 0n ? "MATCH" : `MISMATCH gap ${gap}`;
+}
+
+async function receipts(file: string, runs: number, only: number | null, showRaw: boolean) {
+  const fixtures: Fixture[] = JSON.parse(readFileSync(file, "utf8"));
+  const dir = file.replace(/[^/]*$/, "");
+  let pass = 0, total = 0;
+  for (const [i, f] of fixtures.entries()) {
+    if (only !== null && only !== i + 1) continue;
+    const path = f.file.startsWith("/") ? f.file : dir + f.file;
+    const img = await normalizeImage(new Uint8Array(readFileSync(path)), "image/jpeg");
+    const c = { ...ctx, currency: f.currency ?? ctx.currency };
+    for (let r = 0; r < runs; r++) {
+      total += 1;
+      const t0 = Date.now();
+      try {
+        const { draft, usage, raw } = await parseReceipt({ b64: Buffer.from(img.bytes).toString("base64"), mime: img.mime }, f.caption ?? "", c);
+        const bad = checkReceipt(draft, f.want);
+        if (!bad.length) pass += 1;
+        const tok = usage.reduce((s: number, u: any) => s + u.prompt_tokens + u.completion_tokens, 0);
+        console.log(`${bad.length ? "FAIL" : "ok  "} #${i + 1} ${f.file} [${c.currency}] ${reconcile(draft)} ${Date.now() - t0} ms ${tok} tok${bad.length ? "\n      " + bad.join("\n      ") : ""}`);
+        if (bad.length && showRaw) console.log("      raw: " + JSON.stringify(raw));
+      } catch (e) {
+        console.log(`ERR  #${i + 1} ${f.file}: ${e}`);
+      }
+    }
+  }
+  console.log(`\n${pass}/${total} passed`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
+  const opt = (k: string) => (args.includes(k) ? args[args.indexOf(k) + 1] : null);
+  if (opt("--receipts")) {
+    await receipts(opt("--receipts")!, Number(opt("--runs") ?? 1), opt("--only") ? Number(opt("--only")) : null, args.includes("--raw"));
+    return;
+  }
   const ri = args.indexOf("--receipt");
   if (ri >= 0) {
     const file = args[ri + 1];
     const img = await normalizeImage(new Uint8Array(readFileSync(file)), "image/jpeg");
     const t0 = Date.now();
-    const { draft, usage, raw } = await parseReceipt({ b64: Buffer.from(img.bytes).toString("base64"), mime: img.mime }, args[ri + 2] ?? "", ctx);
+    const caption = args[ri + 2] && !args[ri + 2].startsWith("--") ? args[ri + 2] : "";
+    const { draft, usage, raw } = await parseReceipt({ b64: Buffer.from(img.bytes).toString("base64"), mime: img.mime }, caption, { ...ctx, currency: opt("--currency") ?? ctx.currency });
     console.log(JSON.stringify(raw, null, 1));
     console.log(JSON.stringify(draft, null, 1));
     const sum = (draft.items ?? []).reduce((s, i) => s + BigInt(i.amount ?? "0"), 0n) + (draft.adjustments ?? []).reduce((s, a) => s + BigInt(a.amount), 0n);

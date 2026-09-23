@@ -1,6 +1,12 @@
 /** The deterministic half of AI input: amounts, names, drafts. No model calls. */
-import { describe, it, expect } from "vitest";
-import { currencyInText, draftFromChat, mentionedIds, draftFromReceipt, readAmount, resolveNames, type ParseCtx } from "@/services/ai_parse";
+import { describe, it, expect, vi } from "vitest";
+import { currencyInText, draftFromChat, mentionedIds, draftFromReceipt, parseReceipt, readAmount, resolveNames, type ParseCtx } from "@/services/ai_parse";
+
+// Only the parseReceipt test below reaches the models; both calls are fakes.
+vi.mock("@/services/llm_client", () => ({
+  imageJson: vi.fn(async () => [{ merchant: "Warung", currency: "IDR", items: [{ name: "Ikan", qty: 1, amount: "50.000" }], total: "50.000" }, { model: "v", prompt_tokens: 1, completion_tokens: 1 }]),
+  textJson: vi.fn(async () => { throw new Error("timeout"); }),
+}));
 import { evalExact, exprToMinor } from "@/services/amount_expr";
 
 const members = ["Ali", "Bob", "Cal", "Don"].map((name, i) => ({ id: String(i + 1), name, user_id: null, username: i === 1 ? "bobby" : null, position: i + 1, active: true }));
@@ -153,6 +159,21 @@ describe("drafts", () => {
     expect(d.adjustments).toEqual([{ kind: "tax", amount: "42500" }]);
     expect(d.stated_total).toBe("467500");
     expect(d.payer).toBe("2");
+  });
+
+  it("receipt: an item the note gave an empty list falls back to the default people", () => {
+    const d = draftFromReceipt({ merchant: "Solaria", rows: ["Nasi Goreng 1 30,001"], country: "Indonesia", currency: null,
+      items: [{ name: "Nasi Goreng", qty: 1, amount: "30,001" }, { name: "Lychee Tea", qty: 1, amount: "13,637" }, { name: "Bihun", qty: 1, amount: "36,365" }],
+      tax: null, service: null, discount: null, tip: null, rounding: null, total: "80,003" },
+    { payer: "Cal", default_people: ["Ali", "Bob"], assign: [{ item: 1, people: ["Ali"] }, { item: 2, people: [] }] }, ctx);
+    expect(d.items!.map((i) => i.members)).toEqual([["1"], ["1", "2"], ["1", "2"]]);
+    expect(d.payer).toBe("3");
+  });
+
+  it("receipt: a failed note step keeps the receipt that was already read", async () => {
+    const { draft } = await parseReceipt({ b64: "", mime: "image/jpeg" }, "Ikan Bob", ctx);
+    expect(draft.items!.map((i) => [i.amount, i.members])).toEqual([["50000", ["1", "2", "3", "4"]]]);
+    expect(draft.stated_total).toBe("50000");
   });
 
   it("receipt rounding keeps its printed sign", () => {

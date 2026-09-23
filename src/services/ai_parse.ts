@@ -97,22 +97,25 @@ export const CHAT_SCHEMA = {
 
 export const RECEIPT_SYSTEM = `You read a photo of a receipt and copy what is printed. You never compute or correct numbers.
 Return JSON:
-{"merchant": string or null, "date": "YYYY-MM-DD" or null, "currency": ISO code or null,
+{"rows": [string], "merchant": string or null, "country": string or null, "date": "YYYY-MM-DD" or null, "currency": ISO code or null,
  "items": [{"name": string, "qty": number, "amount": string}],
  "tax": string or null, "service": string or null, "discount": string or null, "tip": string or null,
  "rounding": string or null, "total": string or null}
 Rules:
+0. First fill rows: copy every printed line of the item list (from the first item down to the subtotal), exactly as printed, one string per printed line, top to bottom. Then build items from rows.
 1. amount is the printed line TOTAL for that item (not the unit price when a line total is printed). Copy the digits exactly as printed, including separators.
 2. qty is the printed quantity, else 1.
-3. Never list subtotal, total, tax, service, discount, rounding, cash, change, card or payment lines as items.
-4. tax (PPN, PB1, VAT, GST, tax), service (service charge, SC), discount (diskon, promo, voucher): copy only the printed AMOUNT, without its label or percent; a discount as a positive number. rounding (pembulatan, rounding, round off): copy the amount WITH its printed sign ("-11"). total is the final amount to pay.
-5. A value that is not printed is null. Never guess.
+3. A name can wrap onto the next line. A line with no amount of its own (e.g. "Black Pepper Sauce" under "Beef Steak 85,000") is part of the item above: join it to that name. Each printed amount belongs to exactly one item, in printed order: never copy an amount twice and never move an amount to another item.
+4. Never list subtotal, total, tax, service, discount, rounding, cash, change, card, payment lines or kitchen notes as items.
+5. tax (PPN, PB1, PJK, PJK RST, pajak, VAT, GST, tax), service (service charge, SC, service/packaging fee), discount (diskon, promo, voucher, line discount): copy only the printed AMOUNT, without its label or percent; a discount as a positive number. When several discount lines and a discount total are printed, copy the discount total. rounding (pembulatan, rounding, round off): copy the amount WITH its printed sign ("-11"). total is the final amount to pay.
+6. country: the country of the address or tax number printed, else null. currency: the ISO code of the printed money. A bare "$" or "¥" depends on the country (Singapore "$" = SGD, United States "$" = USD, Hong Kong "$" = HKD, China "¥" = CNY, Japan "¥" = JPY); when the country is unclear, currency is null.
+7. A value that is not printed is null. Never guess.
 Output only the JSON.`;
 
 export const ASSIGN_SYSTEM = `You assign receipt items to people using a short note from the person who took the photo.
 Return JSON: {"payer": name or null, "default_people": [names], "assign": [{"item": number, "people": [names]}]}
 Rules:
-1. Use only what the note says. "item" is the item's number in the list.
+1. Use only what the note says. "item" is the item's number in the list. Receipt names are often short or abbreviated ("Chkn" = chicken, "Bf" = beef, "Mlk" = milk): match the note's words to the item they clearly name, never to a different item. Leave out items the note does not name; never give an item an empty people list.
 2. "rest", "the rest", "sisanya", "everything else", "split evenly", "bagi rata" set default_people for items the note does not assign.
 3. Names as in the member list. "me", "I", "aku", "saya" = the sender. "all", "everyone", "semua", "kita" = every member.
 4. payer: who paid, if the note says so ("paid by Ali", "Ali bayar"), else null.
@@ -369,7 +372,8 @@ export function draftFromReceipt(rec: any, assign: any, ctx: ParseCtx, source: "
   const byItem = new Map<number, string[]>();
   for (const a of Array.isArray(assign?.assign) ? assign.assign : []) {
     const n = Number(a?.item);
-    if (Number.isInteger(n)) byItem.set(n, resolveNames(a?.people, ctx, unknown));
+    // An empty list is "not said", so the item falls back to the default people.
+    if (Number.isInteger(n) && Array.isArray(a?.people) && a.people.length) byItem.set(n, resolveNames(a.people, ctx, unknown));
   }
   const fallback = assign?.default_people?.length ? resolveNames(assign.default_people, ctx, unknown) : (assign ? [] : everyone);
   const items: DraftItem[] = (Array.isArray(rec?.items) ? rec.items : []).slice(0, 150).map((it: any, i: number) => {
@@ -416,9 +420,16 @@ export async function parseReceipt(image: { b64: string; mime: string }, caption
   const note = caption.trim();
   if (note && Array.isArray(rec.items) && rec.items.length) {
     const list = rec.items.map((it: any, i: number) => `${i + 1}. ${String(it?.name ?? "").slice(0, 60)}`).join("\n");
-    [assign, u2] = await textJson(ASSIGN_SYSTEM, `${_ctxText(ctx)}\nItems:\n${list}\nNote: ${note.slice(0, 500)}`, {
-      validate: (p) => p && typeof p === "object",
-    });
+    // The receipt is already read: a slow or failed note step must not throw it
+    // away. The draft then gives every item to everyone and the person fixes it.
+    try {
+      [assign, u2] = await textJson(ASSIGN_SYSTEM, `${_ctxText(ctx)}\nItems:\n${list}\nNote: ${note.slice(0, 500)}`, {
+        timeoutMs: 15000,
+        validate: (p) => p && typeof p === "object",
+      });
+    } catch {
+      assign = null;
+    }
   }
   return { draft: draftFromReceipt(rec, assign, ctx, source), usage: [u1, u2].filter(Boolean), raw: { receipt: rec, assign } };
 }
