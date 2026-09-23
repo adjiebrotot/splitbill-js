@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en" class="i18n-wait">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Split Bill</title>
+<link rel="manifest" href="/app/manifest.json">
+<meta name="theme-color" content="#8bb8f8">
+<link rel="icon" href="/app/static/icons/icon-192.png?v=34543553">
+<link rel="apple-touch-icon" href="/app/static/icons/icon-192.png?v=34543553">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/app/static/css/shared.css?v=88b972d3">
+<script src="/app/static/js/i18n-all.js?v=a969d22f"></script>
+<script src="/app/static/js/boot.js?v=4f3053eb" data-page="home" data-auth="1"></script>
+</head>
+<body>
+  <div id="globalTooltip"></div>
+  <main class="main-content">
+    <div class="settings-wrap">
+      <div class="settings-header"><h1 data-i18n="home.title">My splits</h1></div>
+      <div class="banner warn" id="offline-banner" hidden></div>
+      <div class="settings-card" id="verify-card" hidden>
+        <h2 data-i18n="verify.title">Confirm your email</h2>
+        <p class="card-desc" id="verify-desc"></p>
+        <div class="field">
+          <label for="verify-code" data-i18n="verify.code">Code</label>
+          <input type="text" id="verify-code" class="code-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost" id="verify-resend" data-i18n="verify.resend">Send Again</button>
+          <button type="button" class="btn btn-primary" id="verify-btn" data-i18n="verify.confirm">Confirm</button>
+        </div>
+      </div>
+      <section class="tool-card">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-list"></use></svg> <span data-i18n="home.splits">Splits</span>
+          <span class="tool-head-actions">
+            <button type="button" class="btn btn-ghost btn-compact" id="new-oneoff">+ <span data-i18n="home.new_oneoff">New One-off</span></button>
+            <button type="button" class="btn btn-ghost btn-compact" id="new-trip">+ <span data-i18n="home.new_trip">New Trip</span></button>
+          </span>
+        </h2>
+        <div class="tool-tbl-wrap" id="splits-wrap">
+          <table class="tool-tbl">
+            <thead><tr>
+              <th data-i18n="home.col_name">Name</th>
+              <th class="num" data-i18n="home.col_spent">Spent</th>
+              <th class="num" data-i18n="home.col_mine">My balance</th>
+            </tr></thead>
+            <tbody id="splits-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="modal-overlay" id="modal-new" role="dialog" aria-modal="true" aria-labelledby="new-title">
+    <form class="modal-card" id="new-form" novalidate>
+      <div class="modal-head">
+        <h2 class="modal-title" id="new-title"></h2>
+        <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-new')" data-i18n-aria="common.close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="new-name" data-i18n="new.name">Name</label>
+          <input type="text" id="new-name" maxlength="80" required>
+        </div>
+        <div class="field">
+          <label for="new-currency"><span id="new-ccy-label" data-i18n="new.currency">Currency</span></label>
+          <select id="new-currency"></select>
+        </div>
+        <div class="field">
+          <label for="new-person"><span data-i18n="new.people">People</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="new.people_tip" data-tip="Type a name for someone without the app, or @username for an app user.">?</span></label>
+          <div class="line-row">
+            <input type="text" id="new-person" maxlength="40" data-i18n-ph="new.person_ph" placeholder="Name or @username">
+            <button type="button" class="btn btn-ghost btn-compact" id="new-person-add">+ <span data-i18n="common.add">Add</span></button>
+          </div>
+          <div class="chips" id="new-people"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary" id="new-save" data-i18n="new.create">Create</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="/app/static/js/engine.js?v=f52c3ca1"></script>
+  <script src="/app/static/js/ui.js?v=b30fcd5a"></script>
+  <script src="/app/static/js/i18n.js?v=3c7c0ae8"></script>
+  <script src="/app/static/js/topbar.js?v=87d85aba"></script>
+  <script src="/app/static/js/currency.js?v=7e4d6b4b"></script>
+  <script src="/app/static/js/home.js?v=f1448825"></script>
+</body>
+</html>

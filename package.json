@@ -1,0 +1,38 @@
+{
+  "name": "splitbill-js",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Split Bill: split bills among friends. Next.js + Postgres, serving a PWA, Telegram bot and JSON API.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "gen": "tsx scripts/build_i18n.ts && node scripts/build_engine.mjs && tsx scripts/stamp_assets.ts",
+    "migrate:local": "tsx scripts/migrate.ts"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "1.0.2",
+    "@neondatabase/serverless": "0.10.4",
+    "@node-rs/bcrypt": "1.10.7",
+    "@pdf-lib/fontkit": "1.1.1",
+    "next": "15.5.20",
+    "pdf-lib": "1.17.1",
+    "pg": "8.22.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "ws": "8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.0.7",
+    "@types/ws": "^8.5.13",
+    "esbuild": "0.28.1",
+    "tsx": "4.23.0",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9"
+  }
+}

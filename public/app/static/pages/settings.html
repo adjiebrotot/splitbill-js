@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en" class="i18n-wait">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Split Bill</title>
+<link rel="manifest" href="/app/manifest.json">
+<meta name="theme-color" content="#8bb8f8">
+<link rel="icon" href="/app/static/icons/icon-192.png?v=34543553">
+<link rel="apple-touch-icon" href="/app/static/icons/icon-192.png?v=34543553">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/app/static/css/shared.css?v=88b972d3">
+<script src="/app/static/js/i18n-all.js?v=a969d22f"></script>
+<script src="/app/static/js/boot.js?v=4f3053eb" data-page="settings" data-auth="1"></script>
+</head>
+<body>
+  <div id="globalTooltip"></div>
+  <main class="main-content">
+    <div class="settings-wrap settings-narrow">
+      <div class="settings-header">
+        <a href="/app" class="btn btn-ghost btn-compact btn-icon" data-i18n-aria="common.back" aria-label="Back"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-arrow-left"></use></svg></a>
+        <h1 data-i18n="nav.settings">Settings</h1>
+      </div>
+      <form class="settings-card" id="profile-form" novalidate>
+        <h2 data-i18n="set.profile">Profile</h2>
+        <div class="field">
+          <label for="set-name" data-i18n="auth.display_name">Your name</label>
+          <input type="text" id="set-name" maxlength="40">
+        </div>
+        <div class="field">
+          <label for="set-lang" data-i18n="set.language">Language</label>
+          <select id="set-lang"><option value="en">English</option><option value="id">Bahasa Indonesia</option></select>
+        </div>
+        <div class="field">
+          <label for="set-currency" data-i18n="set.currency">Default currency</label>
+          <select id="set-currency"></select>
+        </div>
+        <div class="field">
+          <label for="set-tz" data-i18n="set.timezone">Time zone</label>
+          <input type="text" id="set-tz" maxlength="64" list="tz-list">
+          <datalist id="tz-list"></datalist>
+        </div>
+        <button type="submit" class="btn btn-primary" id="profile-save" data-i18n="common.save">Save</button>
+      </form>
+      <form class="settings-card" id="pw-form" novalidate>
+        <h2 data-i18n="set.password">Password</h2>
+        <div class="field">
+          <label for="pw-current" data-i18n="set.pw_current">Current password</label>
+          <input type="password" id="pw-current" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label for="pw-new"><span data-i18n="set.pw_new">New password</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="auth.password_rule" data-tip="At least 8 characters with one symbol.">?</span></label>
+          <input type="password" id="pw-new" autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-primary" id="pw-save" data-i18n="set.pw_change">Change Password</button>
+      </form>
+      <section class="settings-card" id="tg-card">
+        <h2 data-i18n="tg.title">Telegram</h2>
+        <p class="card-desc" id="tg-status"></p>
+        <button type="button" class="btn btn-primary" id="tg-link" data-i18n="tg.link">Connect Telegram</button>
+      </section>
+      <section class="settings-card">
+        <h2 data-i18n="set.account">Account</h2>
+        <p class="card-desc" id="acct-desc"></p>
+        <button type="button" class="btn btn-danger" onclick="signOut(event)" data-i18n="nav.signout">Sign out</button>
+      </section>
+    </div>
+  </main>
+  <script src="/app/static/js/engine.js?v=f52c3ca1"></script>
+  <script src="/app/static/js/ui.js?v=b30fcd5a"></script>
+  <script src="/app/static/js/i18n.js?v=3c7c0ae8"></script>
+  <script src="/app/static/js/topbar.js?v=87d85aba"></script>
+  <script src="/app/static/js/currency.js?v=7e4d6b4b"></script>
+  <script src="/app/static/js/settings.js?v=445072ee"></script>
+</body>
+</html>
