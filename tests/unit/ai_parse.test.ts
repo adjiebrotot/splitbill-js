@@ -1,6 +1,6 @@
 /** The deterministic half of AI input: amounts, names, drafts. No model calls. */
 import { describe, it, expect } from "vitest";
-import { draftFromChat, draftFromReceipt, readAmount, resolveNames, type ParseCtx } from "@/services/ai_parse";
+import { currencyInText, draftFromChat, mentionedIds, draftFromReceipt, readAmount, resolveNames, type ParseCtx } from "@/services/ai_parse";
 import { evalExact, exprToMinor } from "@/services/amount_expr";
 
 const members = ["Ali", "Bob", "Cal", "Don"].map((name, i) => ({ id: String(i + 1), name, user_id: null, username: i === 1 ? "bobby" : null, position: i + 1, active: true }));
@@ -69,6 +69,71 @@ describe("drafts", () => {
     expect(d.description).toBe("Bill");
   });
 
+  it("reads the currency the message shows, not the model's guess", () => {
+    expect(currencyInText("Meal $15 for Ali", "IDR")).toBe("USD");
+    expect(currencyInText("Taxi $15", "SGD")).toBe("SGD");
+    expect(currencyInText("Taxi S$15", "IDR")).toBe("SGD");
+    expect(currencyInText("Taxi US$15", "SGD")).toBe("USD");
+    expect(currencyInText("Hotel 120 SGD split", "IDR")).toBe("SGD");
+    expect(currencyInText("SGD 120 hotel", "IDR")).toBe("SGD");
+    expect(currencyInText("Tiket Rp 1.250.000", "USD")).toBe("IDR");
+    expect(currencyInText("Dinner 300k, PPN 11%", "IDR")).toBeNull();
+    expect(currencyInText("Hotel 120 SGD and taxi $5", "IDR")).toBeNull();
+    const base = { description: "x", date: null, payer: null, mode: "even", total_expr: "15", people: [], percents: [], items: [], adjustments: [] };
+    const d = draftFromChat({ ...base, currency: null }, ctx, "chat", "Meal $15");
+    expect([d.currency, d.total]).toEqual(["USD", "1500"]);
+    expect(draftFromChat({ ...base, currency: "EUR" }, ctx, "chat", "Meal 15").currency).toBe("EUR");
+  });
+
+  it("people the message never names are dropped from the model's lists", () => {
+    const ids = (t: string) => { const k = mentionedIds(t, ctx); return k ? [...k].sort() : null; };
+    expect(ids("Lunch 60k for me, Bob and Cal, I paid, split evenly")).toEqual(["1", "2", "3"]);
+    expect(ids("Uber $23.47 split evenly me and Cal, Cal paid")).toEqual(["1", "3"]);
+    expect(ids("parkir 20rb buat saya sama bobb, saya yang bayar")).toEqual(["1", "2"]);
+    expect(ids("Dinner 200k split evenly, Bob paid")).toBeNull();
+    expect(ids("Makan 200rb bagi rata, dibayar oleh Don")).toBeNull();
+    expect(ids("Hotel 120 SGD split evenly all, Cal paid")).toBeNull();
+    expect(ids("makan malam bagi rata semua, Bob yang bayar")).toBeNull();
+    const all = ["Ali", "Bob", "Cal", "Don"];
+    const d = draftFromChat({ description: "x", date: null, currency: null, payer: "Cal", mode: "even", total_expr: "23.47", people: all, percents: [], items: [], adjustments: [] },
+      ctx, "chat", "Uber $23.47 split evenly me and Cal, Cal paid");
+    expect(d.participants!.map((p) => p.member)).toEqual(["1", "3"]);
+    const e = draftFromChat({ description: "x", date: null, currency: null, payer: "Bob", mode: "even", total_expr: "200000", people: all, percents: [], items: [], adjustments: [] },
+      ctx, "chat", "Dinner 200k split evenly, Bob paid");
+    expect(e.participants!.length).toBe(4);
+  });
+
+  it("drops a discount listed twice and a total said again", () => {
+    const d = draftFromChat({ description: "x", date: null, currency: null, payer: "Don", mode: "items", total_expr: null, people: [], percents: [],
+      items: [{ name: "beras", amount_expr: "150000", people: ["Ali", "Bob"] }, { name: "discount", amount_expr: "10000", people: [] }],
+      adjustments: [{ kind: "discount", amount_expr: "10000", percent: null }] }, ctx, "chat", "beras 150rb Ali Bob, discount 10k, Don paid");
+    expect(d.items!.map((i) => i.amount)).toEqual(["150000"]);
+    expect(d.adjustments).toEqual([{ kind: "discount", amount: "-10000" }]);
+    const e = draftFromChat({ description: "x", date: null, currency: null, payer: "Cal", mode: "items", total_expr: null, people: [], percents: [],
+      items: [{ name: "Dinner", amount_expr: "300000", people: ["Ali", "Bob"] }, { name: "Ali", amount_expr: "100000", people: ["Ali"] }, { name: "Bob", amount_expr: "200000", people: ["Bob"] }],
+      adjustments: [] }, ctx, "chat", "Dinner 300k, Ali 100k Bob 200k, Cal paid");
+    expect(e.items!.map((i) => [i.amount, i.members])).toEqual([["100000", ["1"]], ["200000", ["2"]]]);
+    const g = draftFromChat({ description: "x", date: null, currency: null, payer: "Cal", mode: "items", total_expr: null, people: [], percents: [],
+      items: [{ name: "Ali", amount_expr: "100000", people: ["Ali"] }, { name: "Cal", amount_expr: "", people: ["Cal"] }, { name: "Nasi", amount_expr: "", people: ["Bob"] }],
+      adjustments: [] }, ctx);
+    expect(g.items!.map((i) => [i.name, i.amount])).toEqual([["Ali", "100000"], ["Nasi", null]]);
+    // A real item that happens to equal the others' sum stays.
+    const f = draftFromChat({ description: "x", date: null, currency: null, payer: "Ali", mode: "items", total_expr: null, people: [], percents: [],
+      items: [{ name: "pizza", amount_expr: "100000", people: ["Ali", "Bob"] }, { name: "cola", amount_expr: "50000", people: ["Ali"] }, { name: "beer", amount_expr: "50000", people: ["Bob"] }],
+      adjustments: [] }, ctx);
+    expect(f.items!.length).toBe(3);
+  });
+
+  it("days_ago is date math done in code, bounded", () => {
+    const base = { description: "x", currency: null, payer: null, mode: "even", total_expr: "60000", people: [], percents: [], items: [], adjustments: [] };
+    expect(draftFromChat({ ...base, date: null, days_ago: 2 }, ctx).date).toBe("2026-09-21");
+    expect(draftFromChat({ ...base, date: "2026-09-01", days_ago: 0 }, ctx).date).toBe("2026-09-23");
+    expect(draftFromChat({ ...base, date: "2026-09-01", days_ago: null }, ctx).date).toBe("2026-09-01");
+    expect(draftFromChat({ ...base, date: null, days_ago: -3 }, ctx).date).toBe("2026-09-23");
+    expect(draftFromChat({ ...base, date: null, days_ago: 1.5 }, ctx).date).toBe("2026-09-23");
+    expect(draftFromChat({ ...base, date: null, days_ago: 9999 }, ctx).date).toBe("2026-09-23");
+  });
+
   it("an unknown person is reported, never created", () => {
     const d = draftFromChat({ description: "x", date: null, currency: null, payer: "Zed", mode: "items", total_expr: null, people: [], percents: [],
       items: [{ name: "a", amount_expr: "100", people: ["Zed"] }], adjustments: [] }, ctx);
@@ -88,5 +153,15 @@ describe("drafts", () => {
     expect(d.adjustments).toEqual([{ kind: "tax", amount: "42500" }]);
     expect(d.stated_total).toBe("467500");
     expect(d.payer).toBe("2");
+  });
+
+  it("receipt rounding keeps its printed sign", () => {
+    const rec = (rounding: string) => draftFromReceipt({ merchant: "Kafe", date: null, currency: "IDR", items: [{ name: "Kopi", qty: 1, amount: "20.011" }],
+      tax: null, service: null, discount: null, tip: null, rounding, total: "20.000" }, null, ctx).adjustments;
+    expect(rec("-11")).toEqual([{ kind: "other", amount: "-11" }]);
+    expect(rec("Rp -11")).toEqual([{ kind: "other", amount: "-11" }]);
+    expect(rec("(11)")).toEqual([{ kind: "other", amount: "-11" }]);
+    expect(rec("39")).toEqual([{ kind: "other", amount: "39" }]);
+    expect(rec("0")).toEqual([]);
   });
 });

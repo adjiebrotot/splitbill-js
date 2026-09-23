@@ -93,7 +93,8 @@ async function _call(payload: Dict, timeoutMs: number): Promise<[string, Usage]>
 
 /**
  * Text -> JSON with a strict schema when the provider accepts one (falls back
- * to prompt-only JSON on a 4xx), retried once on a parse or shape failure.
+ * to prompt-only JSON on a 4xx). A parse or shape failure is retried up to
+ * twice, but only while the whole call is still quick (the web route has 60s).
  */
 export async function textJson(system: string, user: string, opts: { schema?: Dict; maxTokens?: number; validate?: (p: any) => boolean } = {}): Promise<[any, Usage]> {
   const payload: Dict = {
@@ -105,7 +106,8 @@ export async function textJson(system: string, user: string, opts: { schema?: Di
   };
   if (opts.schema) payload.response_format = { type: "json_schema", json_schema: { name: "bill", strict: true, schema: opts.schema } };
   let last: unknown = null;
-  for (let i = 0; i < 2; i++) {
+  const t0 = Date.now();
+  for (let i = 0; i < 3 && (i === 0 || Date.now() - t0 < 20000); i++) {
     try {
       let raw: string, usage: Usage;
       try {

@@ -50,12 +50,13 @@ Rules:
    - "even" when one amount is shared equally ("split evenly", "bagi rata", "for all of us"). Amount in total_expr, people in people.
    - "percent" when shares are percentages. Amount in total_expr, each person and percent in percents.
    One thing for one or more people, with no word about how to divide it, is "items" with one entry.
-3. People: use the member names given. "me", "I", "my", "aku", "saya", "gue" mean the sender. "everyone", "all", "all of us", "semua", "kita" mean every member: list them all. A name that is not a member stays as written.
+   When each person has their own amount ("Ali 100k, Bob 200k"), use "items" with one entry per person, named after the person, with that person's amount. Do not also add an entry for the total.
+3. People: list only the people the message names for that thing; do not add others. Use the member names given. "me", "I", "my", "aku", "saya", "gue" mean the sender. "everyone", "all", "all of us", "semua", "kita" mean every member: list them all. A name that is not a member stays as written.
 4. payer: who paid ("paid by Bob", "Bob paid", "dibayar Bob", "Bob bayar", "I paid"). null if not said.
-5. Tax, service, tip, discount go in adjustments. A percent ("tax 11%") goes in percent as "11" with amount_expr null; an amount goes in amount_expr with percent null. A discount amount is written positive.
+5. Tax, service, tip, discount go in adjustments, never in items. A percent ("tax 11%") goes in percent as "11" with amount_expr null; an amount goes in amount_expr with percent null. A discount amount is written positive.
 6. description: a short name for the bill in the message's language ("Lunch", "Makan malam"), not the whole message.
-7. date: YYYY-MM-DD only if the message names a day ("yesterday" / "kemarin" = the day before today); else null.
-8. currency: ISO code only if the message states or clearly implies one ("yen", "$", "Rp", "baht", "SGD"); else null.
+7. Day: if the message says how many days ago ("yesterday" / "kemarin" = 1, "2 days ago" / "2 hari lalu" / "kemarin lusa" = 2, "today" / "hari ini" = 0), put that number in days_ago and date null. If it names a calendar date ("20 Sept", "2026-09-20"), put it in date as YYYY-MM-DD and days_ago null. Otherwise both null.
+8. currency: ISO code only if the message states or clearly implies one ("$" = USD, "yen" = JPY, "Rp" = IDR, "baht" = THB, "SGD"); else null.
 Output only the JSON object.`;
 
 const S_STR = { type: "string" };
@@ -63,10 +64,11 @@ const S_NSTR = { type: ["string", "null"] };
 export const CHAT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["description", "date", "currency", "payer", "mode", "total_expr", "people", "percents", "items", "adjustments"],
+  required: ["description", "date", "days_ago", "currency", "payer", "mode", "total_expr", "people", "percents", "items", "adjustments"],
   properties: {
     description: S_STR,
     date: S_NSTR,
+    days_ago: { type: ["integer", "null"] },
     currency: S_NSTR,
     payer: S_NSTR,
     mode: { type: "string", enum: ["items", "even", "percent"] },
@@ -98,12 +100,12 @@ Return JSON:
 {"merchant": string or null, "date": "YYYY-MM-DD" or null, "currency": ISO code or null,
  "items": [{"name": string, "qty": number, "amount": string}],
  "tax": string or null, "service": string or null, "discount": string or null, "tip": string or null,
- "total": string or null}
+ "rounding": string or null, "total": string or null}
 Rules:
 1. amount is the printed line TOTAL for that item (not the unit price when a line total is printed). Copy the digits exactly as printed, including separators.
 2. qty is the printed quantity, else 1.
 3. Never list subtotal, total, tax, service, discount, rounding, cash, change, card or payment lines as items.
-4. tax (PPN, PB1, VAT, GST, tax), service (service charge, SC), discount (diskon, promo, voucher): copy only the printed AMOUNT, without its label or percent; a discount as a positive number. total is the final amount to pay.
+4. tax (PPN, PB1, VAT, GST, tax), service (service charge, SC), discount (diskon, promo, voucher): copy only the printed AMOUNT, without its label or percent; a discount as a positive number. rounding (pembulatan, rounding, round off): copy the amount WITH its printed sign ("-11"). total is the final amount to pay.
 5. A value that is not printed is null. Never guess.
 Output only the JSON.`;
 
@@ -146,6 +148,46 @@ export function resolveNames(raw: unknown, ctx: ParseCtx, unknown: Set<string>):
   return out;
 }
 
+/**
+ * Members the message itself mentions, to check the model's people lists.
+ * Null means "do not filter": the message says everyone ("all", "semua"),
+ * or names nobody besides the payer. The sender is always allowed ("with
+ * Bob" includes me).
+ * A loose match only keeps more people, so it errs on the safe side.
+ */
+const PAYER_PHRASES = [
+  /\b(?:paid by|dibayar(?:in)?(?:\s+(?:oleh|sama|ama))?|ditraktir(?:\s+oleh)?)\s+@?[\p{L}\p{N}_]+/giu,
+  /@?[\p{L}\p{N}_]+\s+(?:(?:yang|yg)\s+)?(?:paid|pays|bayar|bayarin|traktir|nalangin)\b/giu,
+];
+
+export function mentionedIds(text: string, ctx: ParseCtx): Set<string> | null {
+  // "Bob paid" names the payer, not someone who shares the bill.
+  const low = PAYER_PHRASES.reduce((t, re) => t.replace(re, " "), text.toLowerCase());
+  const words = low.split(/[^\p{L}\p{N}@_]+/u).map((w) => w.replace(/^@/, "")).filter(Boolean);
+  if (words.some((w) => ALL.has(w)) || /\ball of us\b/.test(low)) return null;
+  const out = new Set<string>([ctx.sender]);
+  let named = words.some((w) => ME.has(w));
+  for (const m of ctx.members) {
+    const names = [m.name.toLowerCase(), (m.username ?? "").toLowerCase()].filter(Boolean);
+    const hit = names.some((n) => low.includes(n) || words.some((w) => w.length >= 3 && fuzzyScore(w, n) >= 85));
+    if (hit) { out.add(m.id); named = true; }
+  }
+  return named ? out : null;
+}
+
+function _onlyMentioned(ids: string[], keep: Set<string> | null): string[] {
+  if (!keep) return ids;
+  const kept = ids.filter((id) => keep.has(id));
+  return kept.length ? kept : ids;
+}
+
+const ADJ_WORD: [RegExp, DraftAdj["kind"]][] = [
+  [/^(discount|diskon|disc|promo|voucher|potongan)\b/i, "discount"],
+  [/^(tax|pajak|ppn|pb1|vat|gst)\b/i, "tax"],
+  [/^(service|servis|layanan|sc)\b/i, "service"],
+  [/^(tip|tips)\b/i, "tip"],
+];
+
 // ── amounts ─────────────────────────────────────────────────────────────────
 
 /** A number the model copied: plain numbers keep their separators' meaning. */
@@ -186,19 +228,51 @@ function _date(v: unknown, today: string): string {
   return isDate(s) && s <= addDays(today, 1) && s >= addDays(today, -400) ? s : today;
 }
 
+/** The model copies "2 hari lalu" as days_ago: 2; the date math is ours. */
+function _chatDate(parsed: any, today: string): string {
+  const n = parsed?.days_ago;
+  if (Number.isInteger(n) && n >= 0 && n <= 400) return addDays(today, -n);
+  return _date(parsed?.date, today);
+}
+
 function _currency(v: unknown, fallback: string): string {
   const c = normCurrency(v);
   return isCurrency(c) ? c : fallback;
 }
 
-export function draftFromChat(parsed: any, ctx: ParseCtx, source: "chat" | "telegram" = "chat"): Draft {
+const DOLLARS = new Set(["USD", "SGD", "AUD", "NZD", "CAD", "HKD", "TWD", "BND", "FJD"]);
+const SYMBOLS: [RegExp, string][] = [
+  [/US\$/, "USD"], [/S\$/, "SGD"], [/A\$/, "AUD"], [/NZ\$/, "NZD"], [/HK\$/, "HKD"],
+  [/\bRp\.?\s?\d/i, "IDR"], [/\bRM\s?\d/, "MYR"], [/€/, "EUR"], [/£/, "GBP"], [/₩/, "KRW"], [/฿/, "THB"], [/₱/, "PHP"], [/₫/, "VND"],
+];
+
+/**
+ * A currency the message itself shows ("$15", "S$20", "120 SGD", "Rp 25.000").
+ * Code reads it so a model that forgets the symbol cannot turn 15 USD into
+ * 15 IDR. Null unless exactly one currency is shown.
+ */
+export function currencyInText(text: string, groupCurrency: string): string | null {
+  const found = new Set<string>();
+  let rest = text;
+  for (const [re, code] of SYMBOLS) {
+    if (re.test(rest)) { found.add(code); rest = rest.replace(new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g"), " "); }
+  }
+  if (/\$/.test(rest)) found.add(DOLLARS.has(groupCurrency) ? groupCurrency : "USD");
+  for (const m of text.matchAll(/\b([A-Z]{3})\s?\d|\d\s?([A-Z]{3})\b/g)) {
+    const c = m[1] ?? m[2];
+    if (isCurrency(c)) found.add(c);
+  }
+  return found.size === 1 ? [...found][0] : null;
+}
+
+export function draftFromChat(parsed: any, ctx: ParseCtx, source: "chat" | "telegram" = "chat", text = ""): Draft {
   const unknown = new Set<string>();
-  const currency = _currency(parsed?.currency, ctx.currency);
+  const currency = currencyInText(text, ctx.currency) ?? _currency(parsed?.currency, ctx.currency);
   const dp = minorUnits(currency);
   const payerIds = parsed?.payer ? resolveNames([parsed.payer], ctx, unknown) : [];
   const d: Draft = {
     description: cleanText(parsed?.description, 120) || "Bill",
-    date: _date(parsed?.date, ctx.today),
+    date: _chatDate(parsed, ctx.today),
     currency,
     mode: "items",
     payer: payerIds[0] ?? ctx.sender,
@@ -209,13 +283,19 @@ export function draftFromChat(parsed: any, ctx: ParseCtx, source: "chat" | "tele
   const items = Array.isArray(parsed?.items) ? parsed.items : [];
   if (mode === "items" && !items.length && parsed?.total_expr) mode = "even";
 
+  const keep = text ? mentionedIds(text, ctx) : null;
   if (mode === "items") {
-    const draftItems: DraftItem[] = items.slice(0, 100).map((it: any): DraftItem => {
-      const amt = readAmount(it?.amount_expr, dp, true);
-      let who = resolveNames(it?.people, ctx, unknown);
-      if (!who.length && !(Array.isArray(it?.people) && it.people.length)) who = ctx.members.filter((m) => m.active).map((m) => m.id);
-      return { name: cleanText(it?.name, 120) || "Item", qty: "1", amount: amt === null ? null : amt.toString(), members: who };
-    });
+    const adjKinds = new Set((Array.isArray(parsed?.adjustments) ? parsed.adjustments : []).map((a: any) => a?.kind));
+    let draftItems: DraftItem[] = items.slice(0, 100)
+      // A discount or tax the model listed as an item AND as an adjustment would count twice.
+      .filter((it: any) => !ADJ_WORD.some(([re, kind]) => re.test(String(it?.name ?? "").trim()) && adjKinds.has(kind)))
+      .map((it: any): DraftItem => {
+        const amt = readAmount(it?.amount_expr, dp, true);
+        let who = _onlyMentioned(resolveNames(it?.people, ctx, unknown), keep);
+        if (!who.length && !(Array.isArray(it?.people) && it.people.length)) who = ctx.members.filter((m) => m.active).map((m) => m.id);
+        return { name: cleanText(it?.name, 120) || "Item", qty: "1", amount: amt === null ? null : amt.toString(), members: who };
+      });
+    draftItems = _dropRestatedTotal(draftItems, ctx).filter((it) => it.amount !== null || !_isPersonLine(it, ctx));
     d.items = draftItems;
     const sub = draftItems.reduce((s, i) => s + (i.amount ? BigInt(i.amount) : 0n), 0n);
     d.adjustments = [];
@@ -232,7 +312,7 @@ export function draftFromChat(parsed: any, ctx: ParseCtx, source: "chat" | "tele
     const total = readAmount(parsed?.total_expr, dp);
     d.total = total === null ? null : total.toString();
     if (mode === "even") {
-      let who = resolveNames(parsed?.people, ctx, unknown);
+      let who = _onlyMentioned(resolveNames(parsed?.people, ctx, unknown), keep);
       if (!who.length && !(Array.isArray(parsed?.people) && parsed.people.length)) who = ctx.members.filter((m) => m.active).map((m) => m.id);
       d.participants = who.map((member) => ({ member }));
     } else {
@@ -250,13 +330,33 @@ export function draftFromChat(parsed: any, ctx: ParseCtx, source: "chat" | "tele
   return d;
 }
 
+/**
+ * "Dinner 300k, Ali 100k Bob 200k": when every other item is one person's own
+ * amount (named after that person), an item equal to their sum is the bill
+ * total said again, not a third thing to split.
+ */
+/** A line named after the one member it belongs to ("Ali 100k"). An empty one is noise. */
+function _isPersonLine(it: DraftItem, ctx: ParseCtx): boolean {
+  return it.members.length === 1 && ctx.members.some((m) => m.id === it.members[0] && m.name.toLowerCase() === it.name.toLowerCase());
+}
+
+function _dropRestatedTotal(items: DraftItem[], ctx: ParseCtx): DraftItem[] {
+  if (items.length < 3) return items;
+  const isPerson = (it: DraftItem) => _isPersonLine(it, ctx);
+  const persons = items.filter(isPerson);
+  const rest = items.filter((it) => !isPerson(it));
+  if (rest.length !== 1 || persons.length < 2 || !rest[0].amount) return items;
+  const sum = persons.reduce((s, it) => s + (it.amount ? BigInt(it.amount) : 0n), 0n);
+  return BigInt(rest[0].amount) === sum ? persons : items;
+}
+
 export async function parseChat(text: string, ctx: ParseCtx, source: "chat" | "telegram" = "chat") {
   const user = `${_ctxText(ctx)}\nMessage: ${text.slice(0, 2000)}`;
   const [parsed, usage] = await textJson(CHAT_SYSTEM, user, {
     schema: CHAT_SCHEMA,
     validate: (p) => p && typeof p === "object" && typeof p.mode === "string",
   });
-  return { draft: draftFromChat(parsed, ctx, source), usage, raw: parsed };
+  return { draft: draftFromChat(parsed, ctx, source, text), usage, raw: parsed };
 }
 
 // ── photo ───────────────────────────────────────────────────────────────────
@@ -288,6 +388,9 @@ export function draftFromReceipt(rec: any, assign: any, ctx: ParseCtx, source: "
     const v = readAmount(rec?.[kind], dp);
     if (v !== null && v > 0n) adjustments.push({ kind, amount: (kind === "discount" ? -v : v).toString() });
   }
+  // Rounding keeps its printed sign ("Pembulatan -11"); it is an "other" line.
+  const rnd = readAmount(rec?.rounding, dp);
+  if (rnd !== null && rnd > 0n) adjustments.push({ kind: "other", amount: (/^[^\d]*[-\u2212(]/.test(String(rec.rounding)) ? -rnd : rnd).toString() });
   const total = readAmount(rec?.total, dp);
   const payer = assign?.payer ? resolveNames([assign.payer], ctx, unknown)[0] : undefined;
   return {

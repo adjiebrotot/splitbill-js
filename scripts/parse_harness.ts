@@ -4,7 +4,7 @@
  * with the draft it must produce; a case passes when the deterministic draft
  * matches exactly (amounts in minor units, members, mode, payer).
  *
- *   LLM_API_KEY=... npx tsx scripts/parse_harness.ts [--runs 3] [--only 4]
+ *   LLM_API_KEY=... npx tsx scripts/parse_harness.ts [--runs 3] [--only 4] [--raw]
  *   LLM_API_KEY=... npx tsx scripts/parse_harness.ts --receipt path/to/receipt.jpg ["caption"]
  */
 import { readFileSync } from "node:fs";
@@ -15,7 +15,7 @@ const members = ["Ali", "Bob", "Cal", "Don"].map((name, i) => ({ id: String(i + 
 const ctx: ParseCtx = { members, sender: "1", currency: "IDR", today: "2026-09-23" };
 const id = (n: string) => String(members.findIndex((m) => m.name === n) + 1);
 
-type Want = { mode: string; payer: string; total?: string; items?: [string, string[]][]; adj?: string[]; people?: string[]; bp?: [string, number][]; currency?: string; date?: string };
+type Want = { mode: string; payer: string; total?: string; items?: [string, string[]][]; adj?: string[]; people?: string[]; bp?: [string, number][]; currency?: string; date?: string; unknown?: string[] };
 const CASES: [string, Want][] = [
   ["Ice cream 10 for Ali paid by Bob, in USD", { mode: "items", payer: "Bob", currency: "USD", items: [["1000", ["Ali"]]] }],
   ["Meal $15 for Ali, Bob, Cal paid by Don", { mode: "items", payer: "Don", currency: "USD", items: [["1500", ["Ali", "Bob", "Cal"]]] }],
@@ -25,10 +25,24 @@ const CASES: [string, Want][] = [
   ["Taxi 3 x 45rb for Cal and Don, paid by Cal", { mode: "items", payer: "Cal", items: [["135000", ["Cal", "Don"]]] }],
   ["Dinner: nasi goreng 35000 Ali, mie 30000 Bob, es teh 2x8000 Ali Bob, tax 10%, I paid", { mode: "items", payer: "Ali", items: [["35000", ["Ali"]], ["30000", ["Bob"]], ["16000", ["Ali", "Bob"]]], adj: ["8100"] }],
   ["kemarin bensin 200rb dibayar Don buat Don dan Cal", { mode: "items", payer: "Don", date: "2026-09-22", items: [["200000", ["Don", "Cal"]]] }],
+  ["Hotel 120 SGD split evenly all, Cal paid", { mode: "even", payer: "Cal", currency: "SGD", total: "12000", people: ["Ali", "Bob", "Cal", "Don"] }],
+  ["Groceries: beras 150rb Ali Bob, minyak 45k Cal, discount 10k, Don paid", { mode: "items", payer: "Don", items: [["150000", ["Ali", "Bob"]], ["45000", ["Cal"]]], adj: ["-10000"] }],
+  ["Dinner: steak 250000 Bob, pasta 120000 Cal, service 5%, PPN 11%, Bob paid", { mode: "items", payer: "Bob", items: [["250000", ["Bob"]], ["120000", ["Cal"]]], adj: ["18500", "40700"] }],
+  ["Coffee 45k for Ali and Eve, Bob paid", { mode: "items", payer: "Bob", items: [["45000", ["Ali"]]], unknown: ["Eve"] }],
+  ["Villa 2,5jt dibayar Cal, Ali 33,33%, Bob 33,33%, Cal 33,34%", { mode: "percent", payer: "Cal", total: "2500000", bp: [["Ali", 3333], ["Bob", 3333], ["Cal", 3334]] }],
+  ["parkir 20rb buat saya sama bobb, saya yang bayar", { mode: "items", payer: "Ali", items: [["20000", ["Ali", "Bob"]]] }],
+  ["Tiket konser Rp 1.250.000 untuk Cal, dibayar Don", { mode: "items", payer: "Don", items: [["1250000", ["Cal"]]] }],
+  ["2 hari lalu sewa mobil 1,5jt bagi rata Ali Bob Cal Don, Ali bayar", { mode: "even", payer: "Ali", date: "2026-09-21", total: "1500000", people: ["Ali", "Bob", "Cal", "Don"] }],
+  ["Uber $23.47 split evenly me and Cal, Cal paid", { mode: "even", payer: "Cal", currency: "USD", total: "2347", people: ["Ali", "Cal"] }],
+  ["Dinner 300k, Ali 100k Bob 200k, Cal paid", { mode: "items", payer: "Cal", items: [["100000", ["Ali"]], ["200000", ["Bob"]]] }],
 ];
 
 function check(d: any, w: Want): string[] {
   const bad: string[] = [];
+  // One item shared by some people, no tax: splits exactly like "even" over them.
+  if (w.mode === "even" && d.mode === "items" && d.items?.length === 1 && !d.adjustments?.length) {
+    d = { ...d, mode: "even", total: d.items[0].amount, participants: d.items[0].members.map((member: string) => ({ member })) };
+  }
   const eq = (k: string, a: unknown, b: unknown) => { if (JSON.stringify(a) !== JSON.stringify(b)) bad.push(`${k}: got ${JSON.stringify(a)} want ${JSON.stringify(b)}`); };
   eq("mode", d.mode, w.mode);
   eq("payer", d.payer, id(w.payer));
@@ -36,7 +50,8 @@ function check(d: any, w: Want): string[] {
   if (w.date) eq("date", d.date, w.date);
   if (w.total) eq("total", d.total, w.total);
   if (w.items) eq("items", (d.items ?? []).map((i: any) => [i.amount, [...i.members].sort()]), w.items.map(([a, ms]) => [a, ms.map(id).sort()]));
-  if (w.adj) eq("adjustments", (d.adjustments ?? []).map((a: any) => a.amount), w.adj);
+  if (w.adj) eq("adjustments", (d.adjustments ?? []).map((a: any) => a.amount).sort(), [...w.adj].sort());
+  if (w.unknown) eq("unknown", [...d.unknown].sort(), [...w.unknown].sort());
   if (w.people) eq("people", (d.participants ?? []).map((p: any) => p.member).sort(), w.people.map(id).sort());
   if (w.bp) eq("percents", (d.participants ?? []).map((p: any) => [p.member, p.bp]).sort(), w.bp.map(([n, b]) => [id(n), b]).sort());
   return bad;
@@ -58,17 +73,19 @@ async function main() {
   }
   const runs = args.includes("--runs") ? Number(args[args.indexOf("--runs") + 1]) : 1;
   const only = args.includes("--only") ? Number(args[args.indexOf("--only") + 1]) : null;
+  const showRaw = args.includes("--raw");
   let pass = 0, total = 0, tokens = 0;
   for (const [i, [msg, want]] of CASES.entries()) {
     if (only !== null && only !== i + 1) continue;
     for (let r = 0; r < runs; r++) {
       total += 1;
       try {
-        const { draft, usage } = await parseChat(msg, ctx);
+        const { draft, usage, raw } = await parseChat(msg, ctx);
         tokens += usage.prompt_tokens + usage.completion_tokens;
         const bad = check(draft, want);
         if (!bad.length) pass += 1;
         console.log(`${bad.length ? "FAIL" : "ok  "} #${i + 1} ${msg}${bad.length ? "\n      " + bad.join("\n      ") : ""}`);
+        if (bad.length && showRaw) console.log("      raw: " + JSON.stringify(raw));
       } catch (e) {
         console.log(`ERR  #${i + 1} ${msg}: ${e}`);
       }
