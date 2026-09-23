@@ -73,6 +73,7 @@
     renderRates();
     $('card-danger').hidden = !S.view.is_owner || S.offline;
     $('btn-currency').hidden = !(S.view.is_owner && isTravel() && isOpen() && !S.offline);
+    $('btn-tg-bind').hidden = !(S.view.is_owner && isTravel() && !S.offline);
     $('btn-add-bill').hidden = !S.canAddBill();
     $('btn-add-payment').hidden = S.offline || !isOpen();
     $('btn-add-member').hidden = S.offline || !S.view.is_owner || !isOpen();
@@ -331,6 +332,16 @@
     });
   });
   $('btn-rename').addEventListener('click', function () { openMember('group', null); });
+  $('btn-tg-bind').addEventListener('click', function (ev) {
+    var btn = ev.currentTarget;
+    setBusy(btn, true);
+    api('telegram/bind-code', { body: { group_id: GID } }).then(function (r) {
+      setBusy(btn, false);
+      if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+      window.open(r.data.url, '_blank', 'noopener');
+      showToast(t('tg.bind_hint'));
+    });
+  });
   $('btn-delete-group').addEventListener('click', function () {
     confirmDialog(t('grp.delete_confirm', G().name), { okLabel: t('grp.delete') }).then(function (yes) {
       if (!yes) return;
@@ -430,6 +441,16 @@
     if (location.hash === '#add-bill' && S.canAddBill()) {
       history.replaceState(null, '', location.pathname);
       if (window.openBill) window.openBill(null);
+    }
+    // "Edit in app" from Telegram: open the saved draft in the bill form.
+    var dm = /^#draft=([A-Za-z0-9_-]+)$/.exec(location.hash);
+    if (dm && S.canAddBill()) {
+      history.replaceState(null, '', location.pathname);
+      api('draft?id=' + dm[1]).then(function (d) {
+        if (!d.ok) return showToast(errMsg(d.code, d.params), 'error');
+        window.openBill(null);
+        window.fillBillFromDraft(d.data);
+      });
     }
   });
 }());

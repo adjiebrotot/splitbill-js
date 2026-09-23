@@ -56,6 +56,19 @@ addRoutes({
     });
   },
 
+  // ── Telegram ──
+  "POST telegram/link-code": async (_req, ctx) => answer(await A.run(() => A.telegramLinkCode({ user_id: need(ctx).user_id }))),
+  "POST telegram/bind-code": async (_req, ctx) => answer(await A.run(() => A.telegramBindCode({ user_id: need(ctx).user_id, group_id: ctx.body.group_id }))),
+  "POST telegram/unlink": async (_req, ctx) => answer(await A.run(() => A.telegramUnlink({ user_id: need(ctx).user_id }))),
+  "POST admin/telegram-webhook": async (req) => {
+    const secret = process.env.SETUP_SECRET;
+    if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) return json(err("forbidden", {}, 403), 403);
+    const base = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+    if (!base) return json({ ok: false, code: "telegram_unavailable", params: {} }, 400);
+    const { setup } = await import("../telegram/api");
+    return json({ ok: true, data: await setup(`${base}/webhook`) });
+  },
+
   // ── admin: apply migrations (Bearer SETUP_SECRET) ──
   "POST admin/migrate": async (req) => {
     const secret = process.env.SETUP_SECRET;

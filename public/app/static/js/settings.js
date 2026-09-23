@@ -11,7 +11,7 @@
     fillCurrencySelect($('set-currency'), me.default_currency);
     $('set-tz').value = me.timezone;
     $('acct-desc').textContent = '@' + me.username + (me.email ? ' · ' + me.email : '');
-    $('tg-status').textContent = t(me.telegram_linked ? 'tg.linked' : 'tg.not_linked');
+    $('tg-status').textContent = t(me.telegram_linked ? 'tg.linked' : 'tg.web_not_linked');
     $('tg-link').textContent = t(me.telegram_linked ? 'tg.relink' : 'tg.link');
     try {
       var zones = Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [];

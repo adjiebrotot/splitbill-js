@@ -5,11 +5,12 @@
  *
  * The schema is dropped and re-migrated at the start of the run.
  */
+import { schemaUrl, resetSchema } from "../helpers/db";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 const URL = process.env.TEST_DATABASE_URL;
 if (URL) {
-  process.env.DATABASE_URL = URL;
+  process.env.DATABASE_URL = schemaUrl(URL, "t_actions");
   process.env.DB_DRIVER = "pg";
   process.env.SETUP_SECRET = process.env.SETUP_SECRET || "test-secret";
 }
@@ -35,9 +36,7 @@ describe.skipIf(!URL)("actions against Postgres", () => {
 
   beforeAll(async () => {
     db = await import("@/db");
-    await db.executeScript("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-    const M = await import("@/services/migrate");
-    await M.runMigrations();
+    await resetSchema("t_actions");
     A = await import("@/services/actions");
     U = await import("@/services/user_service");
     for (const n of ["ali", "bob", "cal"]) await user(n);

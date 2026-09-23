@@ -40,4 +40,15 @@ Set the env vars from `.env.example`, deploy, then apply migrations once per rel
 curl -X POST -H "Authorization: Bearer $SETUP_SECRET" https://<host>/app/api/admin/migrate
 ```
 
-For Telegram, register the webhook: `POST /app/api/admin/telegram-webhook` with the same header.
+### Telegram
+
+1. Create a bot with @BotFather; set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` and `PUBLIC_BASE_URL`.
+2. Register the webhook and command menus once per deploy URL:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $SETUP_SECRET" https://<host>/app/api/admin/telegram-webhook
+   ```
+3. Users link in Settings → Connect Telegram (a one-time deep link). A trip owner adds the bot to a Telegram group from the trip's Manage card → Connect Telegram Group.
+
+Private chat: send a bill as text or a receipt photo; the bot answers with a draft and [Save] [Edit in app] [Cancel]. `/groups` picks the split, `/report` and `/me` send reports with PNG / PDF buttons.
+
+Group chat (privacy mode stays on): `/bill <text>`, or `/bill` and then reply with text or a photo. `/report`, `/me` (sent privately), `/unbind` (owner).

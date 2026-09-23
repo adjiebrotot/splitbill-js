@@ -968,3 +968,197 @@ export async function getDraft(p: { user_id: string; draft_id: unknown }) {
   const payload = typeof r[1] === "string" ? JSON.parse(r[1] as string) : r[1];
   return { draft_id: String(p.draft_id), group_id: String(r[0]), status: String(r[2]), ...(payload as object) };
 }
+
+// ── Telegram ────────────────────────────────────────────────────────────────
+
+const TG_CODE_MINUTES = 15;
+
+async function _tgCode(userId: string, purpose: "link" | "bind", groupId: string | null): Promise<string> {
+  const { randomCode } = await import("../ids");
+  const code = (purpose === "link" ? "L" : "B") + randomCode(15);
+  await execute(
+    `INSERT INTO telegram_link_codes (code, user_id, purpose, group_id, expires_at)
+     VALUES ($1, $2, $3, $4, NOW() + ($5 || ' minutes')::interval)`,
+    [code, userId, purpose, groupId, String(TG_CODE_MINUTES)],
+  );
+  return code;
+}
+
+function _botName(): string {
+  const b = (process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "");
+  if (!b || !process.env.TELEGRAM_BOT_TOKEN) fail("telegram_unavailable", {}, 503);
+  return b;
+}
+
+/** Deep link that proves the Telegram account belongs to this user. */
+export async function telegramLinkCode(p: { user_id: string }) {
+  const bot = _botName();
+  const code = await _tgCode(p.user_id, "link", null);
+  return { url: `https://t.me/${bot}?start=${code}` };
+}
+
+/** Deep link that adds the bot to a Telegram group bound to this trip (owner). */
+export async function telegramBindCode(p: { user_id: string; group_id: unknown }) {
+  const bot = _botName();
+  const s = await loadGroup(String(p.group_id ?? ""));
+  if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
+  if (s.group.owner !== p.user_id) fail("owner_only", {}, 403);
+  if (s.group.kind !== "travel") fail("kind_invalid");
+  const code = await _tgCode(p.user_id, "bind", s.group.group_id);
+  return { url: `https://t.me/${bot}?startgroup=${code}` };
+}
+
+async function _useCode(code: string, purpose: "link" | "bind") {
+  return fetchone(
+    `UPDATE telegram_link_codes SET used_at = NOW()
+      WHERE code = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > NOW()
+      RETURNING user_id::text, group_id`,
+    [code, purpose],
+  );
+}
+
+export interface TgUser {
+  user_id: string;
+  username: string;
+  display_name: string;
+  language: string;
+  telegram_group: string | null;
+}
+
+export async function telegramUser(telegramId: number): Promise<TgUser | null> {
+  const r = await fetchone(
+    "SELECT user_id::text, username, display_name, language, telegram_group FROM users WHERE telegram_id = $1",
+    [telegramId],
+  );
+  return r ? { user_id: String(r[0]), username: String(r[1]), display_name: String(r[2]), language: String(r[3]), telegram_group: r[4] ? String(r[4]) : null } : null;
+}
+
+/** Consume a link code: this Telegram account now belongs to the code's user. */
+export async function telegramLink(p: { code: string; telegram_id: number }) {
+  return atomic(async () => {
+    const r = await _useCode(p.code, "link");
+    if (!r) fail("code_invalid");
+    await execute("UPDATE users SET telegram_id = NULL WHERE telegram_id = $1", [p.telegram_id]);
+    await execute("UPDATE users SET telegram_id = $1 WHERE user_id = $2", [p.telegram_id, r[0]]);
+    return (await telegramUser(p.telegram_id))!;
+  });
+}
+
+export async function telegramUnlink(p: { user_id: string }) {
+  await execute("UPDATE users SET telegram_id = NULL, telegram_group = NULL WHERE user_id = $1", [p.user_id]);
+  return { unlinked: true };
+}
+
+/** Bind a Telegram group chat to the trip named by a bind code. Owner only. */
+export async function telegramBind(p: { code: string; chat_id: number; telegram_id: number }) {
+  return atomic(async () => {
+    const me = await telegramUser(p.telegram_id);
+    if (!me) fail("login_required", {}, 401);
+    const r = await _useCode(p.code, "bind");
+    if (!r || String(r[0]) !== me.user_id) fail("code_invalid");
+    const gid = String(r[1]);
+    const lock = await lockGroup(gid);
+    if (!lock) fail("group_not_found", {}, 404);
+    if (lock.owner !== me.user_id) fail("owner_only", {}, 403);
+    await execute(
+      `INSERT INTO telegram_chats (chat_id, group_id, bound_by) VALUES ($1, $2, $3)
+       ON CONFLICT (chat_id) DO UPDATE SET group_id = EXCLUDED.group_id, bound_by = EXCLUDED.bound_by, bound_at = NOW()`,
+      [p.chat_id, gid, me.user_id],
+    );
+    await _event(gid, me.user_id, "bind", "telegram", String(p.chat_id));
+    return { group_id: gid };
+  });
+}
+
+export async function telegramUnbind(p: { chat_id: number; user_id: string }) {
+  const gid = await telegramChatGroup(p.chat_id);
+  if (!gid) return { unbound: false };
+  const r = await fetchone("SELECT owner_user_id::text FROM groups WHERE group_id = $1", [gid]);
+  if (!r || String(r[0]) !== p.user_id) fail("owner_only", {}, 403);
+  await execute("DELETE FROM telegram_chats WHERE chat_id = $1", [p.chat_id]);
+  return { unbound: true };
+}
+
+export async function telegramChatGroup(chatId: number): Promise<string | null> {
+  const r = await fetchone(
+    "SELECT c.group_id FROM telegram_chats c JOIN groups g USING (group_id) WHERE c.chat_id = $1 AND g.deleted_at IS NULL",
+    [chatId],
+  );
+  return r ? String(r[0]) : null;
+}
+
+/** A group the bot was removed from, or a group that became a supergroup. */
+export async function telegramChatGone(chatId: number): Promise<void> {
+  await execute("DELETE FROM telegram_chats WHERE chat_id = $1", [chatId]);
+}
+
+export async function telegramChatMigrated(from: number, to: number): Promise<void> {
+  await execute("UPDATE telegram_chats SET chat_id = $2 WHERE chat_id = $1", [from, to]);
+}
+
+/** First sight of an update id: true. A retry: false (insert-first dedup). */
+export async function telegramFirstSeen(updateId: number): Promise<boolean> {
+  const n = await execute("INSERT INTO telegram_updates (update_id) VALUES ($1) ON CONFLICT DO NOTHING", [updateId]);
+  return n > 0;
+}
+
+export async function telegramGroups(p: { user_id: string }) {
+  const rows = await fetchall(
+    `SELECT g.group_id, g.name, g.kind FROM groups g JOIN members m ON m.group_id = g.group_id
+      WHERE m.user_id = $1 AND m.active AND g.deleted_at IS NULL AND g.status = 'open'
+      ORDER BY g.created_at DESC LIMIT 20`,
+    [p.user_id],
+  );
+  return rows.map((r) => ({ group_id: String(r[0]), name: String(r[1]), kind: String(r[2]) }));
+}
+
+export async function telegramSetGroup(p: { user_id: string; group_id: string }) {
+  const s = await loadGroup(p.group_id);
+  if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
+  await execute("UPDATE users SET telegram_group = $1 WHERE user_id = $2", [p.group_id, p.user_id]);
+  return { group_id: p.group_id, name: s.group.name };
+}
+
+export async function telegramSetPending(chatId: number, tgUserId: number, kind: string, data: unknown): Promise<void> {
+  await execute(
+    `INSERT INTO telegram_pending (chat_id, tg_user_id, kind, data, expires_at) VALUES ($1, $2, $3, $4, NOW() + INTERVAL '30 minutes')
+     ON CONFLICT (chat_id, tg_user_id) DO UPDATE SET kind = EXCLUDED.kind, data = EXCLUDED.data, expires_at = EXCLUDED.expires_at`,
+    [chatId, tgUserId, kind, JSON.stringify(data)],
+  );
+}
+
+export async function telegramTakePending(chatId: number, tgUserId: number): Promise<{ kind: string; data: any } | null> {
+  const r = await fetchone(
+    "DELETE FROM telegram_pending WHERE chat_id = $1 AND tg_user_id = $2 AND expires_at > NOW() RETURNING kind, data",
+    [chatId, tgUserId],
+  );
+  return r ? { kind: String(r[0]), data: typeof r[1] === "string" ? JSON.parse(r[1] as string) : r[1] } : null;
+}
+
+/** Save a draft as a bill (the draft's owner only). A second tap is a no-op. */
+export async function saveDraftAsBill(p: { user_id: string; draft_id: string }) {
+  const d = await getDraft({ user_id: p.user_id, draft_id: p.draft_id }) as Record<string, any>;
+  if (d.status === "cancelled") fail("draft_not_found", {}, 404);
+  return saveBill({
+    user_id: p.user_id,
+    group_id: d.group_id,
+    description: d.description,
+    date: d.date,
+    currency: d.currency,
+    mode: d.mode,
+    payer: d.payer,
+    total: d.total ?? undefined,
+    stated_total: d.stated_total ?? null,
+    items: (d.items ?? []).map((i: any) => ({ ...i, amount: i.amount ?? "" })),
+    adjustments: d.adjustments ?? [],
+    participants: d.participants ?? [],
+    source: "telegram",
+    client_key: "draft:" + p.draft_id,
+    draft_id: p.draft_id,
+  });
+}
+
+export async function cancelDraft(p: { user_id: string; draft_id: string }) {
+  await execute("UPDATE drafts SET status = 'cancelled' WHERE draft_id = $1 AND user_id = $2 AND status = 'pending'", [p.draft_id, p.user_id]);
+  return { cancelled: true };
+}
