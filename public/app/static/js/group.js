@@ -31,7 +31,8 @@
 
   S.canAddBill = function () {
     var me = myMember();
-    return !S.offline && isOpen() && me && me.active && (isTravel() || S.view.is_owner);
+    if (S.offline || !isOpen() || !me || !me.active) return false;
+    return isTravel() || (S.view.is_owner && !S.view.bills.length);
   };
   S.canEditBill = function (b) {
     if (S.offline || !isOpen()) return false;
@@ -71,6 +72,7 @@
     renderMembers();
     renderRates();
     $('card-danger').hidden = !S.view.is_owner || S.offline;
+    $('btn-currency').hidden = !(S.view.is_owner && isTravel() && isOpen() && !S.offline);
     $('btn-add-bill').hidden = !S.canAddBill();
     $('btn-add-payment').hidden = S.offline || !isOpen();
     $('btn-add-member').hidden = S.offline || !S.view.is_owner || !isOpen();
@@ -422,5 +424,121 @@
       history.replaceState(null, '', location.pathname);
       if (window.openBill) window.openBill(null);
     }
+  });
+}());
+
+/* ── Rates and settlement currency (trip groups) ──────────────────────────
+   Rates are stored "big side first": 1 USD = 16,000 IDR, never 0.0000625.
+   `inverted` means 1 settlement unit = rate foreign units. */
+(function () {
+  var S = window.SB, E = window.SBEngine;
+  var $ = function (id) { return document.getElementById(id); };
+  var R = { inverted: false, source: 'manual', replace: null };
+  function G() { return S.view.group; }
+  function lang() { return window.__LANG__ || 'en'; }
+  function localRate(text) { return lang() === 'id' ? String(text).replace('.', ',') : String(text); }
+
+  function label() {
+    var c = $('rate-currency').value;
+    $('rate-label').textContent = R.inverted ? '1 ' + G().currency + ' = ? ' + c : '1 ' + c + ' = ? ' + G().currency;
+  }
+
+  window.openRate = function (currency, effective) {
+    var row = currency ? S.view.rates.filter(function (r) { return r.currency === currency && r.effective === effective; })[0] : null;
+    R = { inverted: row ? row.inverted : false, source: row ? row.source : 'manual', replace: row ? { currency: row.currency, effective: row.effective } : null };
+    var sel = $('rate-currency');
+    fillCurrencySelect(sel, currency || (S.view.missing[0] && S.view.missing[0].currency) || 'USD');
+    var own = sel.querySelector('option[value="' + G().currency + '"]');
+    if (own) own.remove();
+    var start = !row ? !S.view.rates.some(function (r) { return r.currency === sel.value; }) : row.effective === '-infinity';
+    $('rate-start').checked = start;
+    $('rate-date').value = row && row.effective !== '-infinity' ? row.effective : todayIn(G().timezone);
+    $('rate-date').disabled = start;
+    $('rate-value').value = row ? localRate(row.rate) : '';
+    $('rate-title').textContent = t(row ? 'rate.edit' : 'rate.add');
+    label();
+    openModal('modal-rate', { initialFocus: '#rate-value' });
+  };
+
+  $('rate-currency').addEventListener('change', label);
+  $('rate-start').addEventListener('change', function () { $('rate-date').disabled = $('rate-start').checked; });
+  $('rate-value').addEventListener('input', function () { R.source = 'manual'; });
+  $('rate-flip').addEventListener('click', function () {
+    R.inverted = !R.inverted;
+    // Keep the same meaning: flip the number too when one is there.
+    try {
+      var r = E.parseLocaleRate($('rate-value').value, lang()).value;
+      var inv = E.frac(r.den, r.num);
+      var n = Number(inv.num) / Number(inv.den);
+      $('rate-value').value = localRate(Number(n.toPrecision(10)).toString());
+    } catch (e) {}
+    label();
+  });
+  $('rate-auto').addEventListener('click', function (ev) {
+    var btn = ev.currentTarget;
+    setBusy(btn, true);
+    api('rate/auto', { body: { group_id: S.gid, currency: $('rate-currency').value, effective: $('rate-start').checked ? '-infinity' : $('rate-date').value } })
+      .then(function (r) {
+        setBusy(btn, false);
+        if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+        R.inverted = r.data.inverted;
+        R.source = 'auto';
+        $('rate-value').value = localRate(r.data.rate);
+        label();
+        showToast(t('rate.auto_done'));
+      });
+  });
+  $('rate-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var rate;
+    try { rate = E.parseLocaleRate($('rate-value').value, lang()).text; }
+    catch (e) { return showToast(errMsg(e.code || 'rate_invalid'), 'error'); }
+    S.act('rate/set', {
+      currency: $('rate-currency').value,
+      effective: $('rate-start').checked ? '-infinity' : $('rate-date').value,
+      rate: rate, inverted: R.inverted, source: R.source, replace: R.replace,
+    }, t('rate.saved'), $('rate-save')).then(function (r) { if (r.ok) closeModal('modal-rate'); });
+  });
+}());
+
+/* ── Change a trip's settlement currency: one request with every rate. ── */
+(function () {
+  var S = window.SB, E = window.SBEngine;
+  var $ = function (id) { return document.getElementById(id); };
+  function G() { return S.view.group; }
+
+  function used() {
+    var set = {};
+    S.view.bills.forEach(function (b) { set[b.currency] = 1; });
+    S.view.payments.forEach(function (p) { set[p.currency] = 1; });
+    return Object.keys(set).sort();
+  }
+
+  function renderRates() {
+    var to = $('ccy-new').value;
+    var need = used().filter(function (c) { return c !== to; });
+    $('ccy-rates').innerHTML = need.map(function (c) {
+      return '<div class="pct-row"><span class="who">1 ' + esc(c) + ' =</span>' +
+        '<input type="text" class="ccy-rate" data-c="' + esc(c) + '" inputmode="decimal" aria-label="' + esc(c) + '">' +
+        '<span class="muted">' + esc(to) + '</span></div>';
+    }).join('');
+  }
+
+  $('btn-currency').addEventListener('click', function () {
+    fillCurrencySelect($('ccy-new'), G().currency);
+    renderRates();
+    openModal('modal-ccy', { initialFocus: '#ccy-new' });
+  });
+  $('ccy-new').addEventListener('change', renderRates);
+  $('ccy-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var rates = [];
+    var inputs = $('ccy-rates').querySelectorAll('.ccy-rate');
+    for (var i = 0; i < inputs.length; i++) {
+      try { rates.push({ currency: inputs[i].dataset.c, effective: '-infinity', rate: E.parseLocaleRate(inputs[i].value, window.__LANG__).text, inverted: false }); }
+      catch (e) { return showToast(errMsg(e.code || 'rate_invalid'), 'error'); }
+    }
+    S.act('group/currency', { currency: $('ccy-new').value, rates: rates }, t('common.saved'), $('ccy-save'))
+      .then(function (r) { if (r.ok) closeModal('modal-ccy'); });
   });
 }());

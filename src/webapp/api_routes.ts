@@ -135,7 +135,7 @@ export async function handleApi(req: Request, path: string): Promise<Response> {
     if (ct.includes("application/json")) {
       body = ((await req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
       if (typeof body !== "object" || Array.isArray(body)) body = {};
-    } else if (!ct.includes("multipart/form-data") && path !== "auth/logout") {
+    } else if (!ct.includes("multipart/form-data") && path !== "auth/logout" && !path.startsWith("admin/")) {
       return json({ ok: false, code: "unsupported", params: {} }, 415);
     }
   }

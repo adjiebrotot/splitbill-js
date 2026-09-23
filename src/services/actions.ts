@@ -17,7 +17,7 @@
 import { atomic, execute, fetchall, fetchone } from "../db";
 import { ActionError, err, fail, ok, type Result } from "../errors";
 import {
-  ADJ_KINDS, allocate, EngineError, ENGINE_VERSION, isCurrency, minorUnits, normCurrency, parseMinor,
+  ADJ_KINDS, allocate, EngineError, ENGINE_VERSION, isCurrency, minorUnits, normCurrency, parseMinor, parseRate,
   type AdjKind, type BillIn,
 } from "../engine";
 import { newGroupId, newInviteCode } from "../ids";
@@ -515,6 +515,7 @@ export async function saveBill(p: { user_id: string } & Params) {
     if (existing && !_canEditBill(c, existing.created_by)) fail("bill_edit_forbidden", {}, 403);
     if (existing && Number(p.version) !== existing.version) fail("stale_version", {}, 409);
     if (!existing && c.s.group.kind === "one_off" && !c.isOwner) fail("owner_only", {}, 403);
+    if (!existing && c.s.group.kind === "one_off" && c.s.bills.length && !p.client_key) fail("one_off_single_bill");
 
     // A double tap sends the same client_key twice: the second is a no-op.
     const clientKey = p.client_key ? cleanText(p.client_key, 64) : null;
@@ -522,6 +523,7 @@ export async function saveBill(p: { user_id: string } & Params) {
       const dup = await fetchone("SELECT bill_id::text FROM bills WHERE group_id = $1 AND client_key = $2", [gid, clientKey]);
       if (dup) return { bill_id: String(dup[0]), duplicate: true };
     }
+    if (!existing && c.s.group.kind === "one_off" && c.s.bills.length) fail("one_off_single_bill");
 
     const { bill } = cleanBill(p, { s: c.s, today: _today(c) });
 
@@ -729,4 +731,126 @@ export class __AuthError extends Error {
   constructor() {
     super("login_required");
   }
+}
+
+// ── rates (trip groups) ─────────────────────────────────────────────────────
+
+function _effective(v: unknown): string {
+  const s = String(v ?? "");
+  if (s === "-infinity" || s === "") return "-infinity";
+  if (!isDate(s)) fail("date_invalid");
+  return s;
+}
+
+function _requireTravel(c: Ctx): void {
+  if (c.s.group.kind !== "travel") fail("kind_invalid");
+}
+
+/**
+ * Add or replace one rate row. `replace` names the row being edited (its
+ * currency and date may change). The post-write gate refuses the change when
+ * any bill or payment would lose its rate.
+ */
+export async function setRate(p: { user_id: string } & Params) {
+  return write(p.user_id, p.group_id, async (c) => {
+    _requireOwner(c);
+    _requireOpen(c);
+    _requireTravel(c);
+    const currency = normCurrency(p.currency);
+    if (!isCurrency(currency)) fail("currency_invalid");
+    if (currency === c.s.group.currency) fail("rate_not_allowed");
+    const effective = _effective(p.effective);
+    const rate = parseRate(p.rate);
+    const inverted = p.inverted === true;
+    const source = p.source === "auto" ? "auto" : "manual";
+    const gid = c.s.group.group_id;
+    const rep = p.replace as Params | undefined;
+    if (rep && rep.currency) {
+      await execute("DELETE FROM fx_rates WHERE group_id = $1 AND currency = $2 AND effective_date = $3::date",
+        [gid, normCurrency(rep.currency), _effective(rep.effective)]);
+    }
+    await execute(
+      `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by)
+       VALUES ($1, $2, $3::date, $4, $5, $6, $7)
+       ON CONFLICT (group_id, currency, effective_date)
+       DO UPDATE SET rate = EXCLUDED.rate, inverted = EXCLUDED.inverted, source = EXCLUDED.source, set_by = EXCLUDED.set_by, set_at = NOW()`,
+      [gid, currency, effective, rate.text, inverted, source, c.userId],
+    );
+    await c.log("set", "rate", `${currency}|${effective}`, { rate: rate.text, inverted, source, replaced: rep ?? null });
+    await _coverageOr("rate_needed", gid);
+    return { currency, effective, rate: rate.text, inverted };
+  });
+}
+
+export async function deleteRate(p: { user_id: string } & Params) {
+  return write(p.user_id, p.group_id, async (c) => {
+    _requireOwner(c);
+    _requireOpen(c);
+    const currency = normCurrency(p.currency);
+    const effective = _effective(p.effective);
+    const n = await execute("DELETE FROM fx_rates WHERE group_id = $1 AND currency = $2 AND effective_date = $3::date",
+      [c.s.group.group_id, currency, effective]);
+    if (n < 1) fail("rate_not_found", {}, 404);
+    await c.log("delete", "rate", `${currency}|${effective}`);
+    await _coverageOr("rate_needed", c.s.group.group_id);
+    return { deleted: true };
+  });
+}
+
+/** Refuse (roll back) with `code` when any bill or payment lost its rate. */
+async function _coverageOr(code: string, gid: string): Promise<void> {
+  const s = await loadGroup(gid);
+  if (!s) return;
+  const out = compute(s);
+  if (!out.complete) {
+    const m = out.missing[0];
+    fail(code, m ? { currency: m.currency, date: m.date } : {});
+  }
+}
+
+/** A market rate to prefill the form. Saves nothing. */
+export async function suggestRate(p: { user_id: string } & Params) {
+  const s = await loadGroup(String(p.group_id ?? ""));
+  if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
+  const currency = normCurrency(p.currency);
+  if (!isCurrency(currency) || currency === s.group.currency) fail("currency_invalid");
+  const date = p.effective && p.effective !== "-infinity" && isDate(String(p.effective)) ? String(p.effective) : null;
+  const today = localDate(s.group.timezone);
+  const { fetchFxratesBest, bigSideFirst } = await import("../fx_providers");
+  const r = await fetchFxratesBest(currency, s.group.currency, date && date < today ? date : null);
+  if (!r) fail("rate_unavailable", {}, 502);
+  return bigSideFirst(r);
+}
+
+/**
+ * Change a trip's settlement currency. One request carries the complete new
+ * rate table (one row per currency in use); the gate refuses it unless every
+ * bill and payment converts afterwards.
+ */
+export async function changeCurrency(p: { user_id: string } & Params) {
+  return write(p.user_id, p.group_id, async (c) => {
+    _requireOwner(c);
+    _requireOpen(c);
+    _requireTravel(c);
+    const currency = normCurrency(p.currency);
+    if (!isCurrency(currency)) fail("currency_invalid");
+    const gid = c.s.group.group_id;
+    const rows = Array.isArray(p.rates) ? (p.rates as Params[]) : [];
+    await execute("DELETE FROM fx_rates WHERE group_id = $1", [gid]);
+    await execute("UPDATE groups SET currency = $1, minor_units = $2 WHERE group_id = $3", [currency, minorUnits(currency), gid]);
+    for (const r of rows) {
+      const rc = normCurrency(r.currency);
+      if (!isCurrency(rc)) fail("currency_invalid");
+      if (rc === currency) continue;
+      const rate = parseRate(r.rate);
+      await execute(
+        `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by)
+         VALUES ($1, $2, $3::date, $4, $5, 'manual', $6)`,
+        [gid, rc, _effective(r.effective), rate.text, r.inverted === true, c.userId],
+      );
+    }
+    await c.log("currency", "group", gid, { from: c.s.group.currency, to: currency, rates: rows });
+    await _coverageOr("rate_missing", gid);
+    return { currency };
+  });
 }

@@ -111,6 +111,7 @@ export const STRINGS: Record<string, Entry> = {
   // ── group ──
   "grp.manage": { en: "Manage", id: "Kelola" },
   "grp.rename": { en: "Rename", id: "Ganti Nama" },
+  "grp.change_currency": { en: "Change Currency", id: "Ganti Mata Uang" },
   "grp.delete": { en: "Delete Split", id: "Hapus Tagihan" },
   "grp.delete_confirm": { en: "Delete \"{0}\" for everyone?", id: "Hapus \"{0}\" untuk semua anggota?" },
   "grp.settle": { en: "Settle", id: "Selesaikan" },

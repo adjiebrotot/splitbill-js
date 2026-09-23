@@ -197,4 +197,45 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     expect(await A.run(() => A.saveBill({ user_id: uid.ali, group_id: g.group_id, description: "x", date: "2026-09-01", mode: "even", payer: grandma, total: "100", participants: [{ member: ali }] })))
       .toMatchObject({ ok: false, code: "member_inactive_pick" });
   });
+
+  it("rates: coverage, dated rates, locked while settled, currency change", async () => {
+    const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Japan", currency: "IDR", members: ["Bob"] });
+    let v = await view(g.group_id);
+    const [ali, bob] = ["Ali", "Bob"].map((n) => memberId(v, n));
+    const bill = { user_id: uid.ali, group_id: g.group_id, description: "Ramen", date: "2026-09-05", currency: "JPY", mode: "even", payer: ali, total: "3000",
+      participants: [{ member: ali }, { member: bob }] };
+    expect(await A.run(() => A.saveBill(bill))).toMatchObject({ ok: false, code: "rate_missing" });
+    // A rate for the settlement currency itself is refused.
+    expect(await A.run(() => A.setRate({ user_id: uid.ali, group_id: g.group_id, currency: "IDR", effective: "-infinity", rate: "1" }))).toMatchObject({ ok: false, code: "rate_not_allowed" });
+    await A.setRate({ user_id: uid.ali, group_id: g.group_id, currency: "JPY", effective: "-infinity", rate: "108.5" });
+    await A.saveBill(bill);
+    v = await view(g.group_id);
+    expect(v.bills[0].converted).toBe(325500n);
+    expect(netOf(v, "Bob")).toBe(-162750n);
+    // Only the owner sets rates.
+    await A.joinByInvite({ user_id: uid.cal, code: v.group.invite_code! });
+    expect(await A.run(() => A.setRate({ user_id: uid.cal, group_id: g.group_id, currency: "JPY", effective: "2026-09-05", rate: "110" }))).toMatchObject({ ok: false, code: "owner_only" });
+    // A dated rate takes over from its date.
+    await A.setRate({ user_id: uid.ali, group_id: g.group_id, currency: "JPY", effective: "2026-09-05", rate: "110" });
+    v = await view(g.group_id);
+    expect(v.bills[0].converted).toBe(330000n);
+    // Deleting the from-start rate is fine (the dated one covers the bill); deleting both is not.
+    await A.deleteRate({ user_id: uid.ali, group_id: g.group_id, currency: "JPY", effective: "-infinity" });
+    expect(await A.run(() => A.deleteRate({ user_id: uid.ali, group_id: g.group_id, currency: "JPY", effective: "2026-09-05" }))).toMatchObject({ ok: false, code: "rate_needed" });
+    // Moving the only rate after the bill date would orphan it.
+    expect(await A.run(() => A.setRate({ user_id: uid.ali, group_id: g.group_id, currency: "JPY", effective: "2026-09-06", rate: "110", replace: { currency: "JPY", effective: "2026-09-05" } })))
+      .toMatchObject({ ok: false, code: "rate_needed" });
+    // Settled: rates locked.
+    v = await view(g.group_id);
+    await A.settleGroup({ user_id: uid.ali, group_id: g.group_id, expected_revision: v.group.revision });
+    expect(await A.run(() => A.setRate({ user_id: uid.ali, group_id: g.group_id, currency: "USD", effective: "-infinity", rate: "16000" }))).toMatchObject({ ok: false, code: "group_settled" });
+    await A.reopenGroup({ user_id: uid.ali, group_id: g.group_id });
+    // Change the settlement currency to JPY: the IDR-free group needs no rate at all.
+    expect(await A.run(() => A.changeCurrency({ user_id: uid.ali, group_id: g.group_id, currency: "USD", rates: [] }))).toMatchObject({ ok: false, code: "rate_missing" });
+    await A.changeCurrency({ user_id: uid.ali, group_id: g.group_id, currency: "JPY", rates: [] });
+    v = await view(g.group_id);
+    expect(v.group.currency).toBe("JPY");
+    expect(v.bills[0].converted).toBe(3000n);
+    expect(v.balances.reduce((a, b) => a + b.net, 0n)).toBe(0n);
+  });
 });
