@@ -431,6 +431,7 @@ export const STRINGS: Record<string, Entry> = {
   "err.ai_unavailable": { en: "Reading is not available right now. Use the form.", id: "Fitur baca sedang tidak tersedia. Pakai formulir." },
   "err.image_invalid": { en: "Choose a JPG, PNG or WebP photo under 10 MB.", id: "Pilih foto JPG, PNG, atau WebP di bawah 10 MB." },
   "err.telegram_unavailable": { en: "Telegram is not set up on this server.", id: "Telegram belum diatur di server ini." },
+  "err.draft_not_found": { en: "That draft expired. Send it again.", id: "Draf itu sudah kedaluwarsa. Kirim ulang." },
   "err.report_invalid": { en: "Pick a report.", id: "Pilih laporan." },
 };
 

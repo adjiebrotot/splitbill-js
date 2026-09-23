@@ -25,6 +25,20 @@ addRoutes({
   "POST rate/auto": async (_req, ctx) => answer(await A.run(() => A.suggestRate({ ...ctx.body, user_id: need(ctx).user_id }))),
   "POST group/currency": async (_req, ctx) => answer(await A.run(() => A.changeCurrency({ ...ctx.body, user_id: need(ctx).user_id }))),
 
+  // ── AI drafts ──
+  "POST ai/chat": async (_req, ctx) => answer(await A.run(() => A.aiDraftFromText({ user_id: need(ctx).user_id, group_id: ctx.body.group_id, text: ctx.body.text }))),
+  "POST ai/photo": async (req, ctx) => {
+    const user = need(ctx);
+    const form = await req.formData().catch(() => null);
+    const file = form?.get("file");
+    if (!form || !file || typeof file === "string") return json({ ok: false, code: "image_invalid", params: {} }, 400);
+    const bytes = new Uint8Array(await (file as Blob).arrayBuffer());
+    return answer(await A.run(() => A.aiDraftFromImage({
+      user_id: user.user_id, group_id: form.get("group_id"), bytes, mime: (file as Blob).type || "image/jpeg", caption: form.get("caption") ?? "",
+    })));
+  },
+  "GET draft": async (_req, ctx) => answer(await A.run(() => A.getDraft({ user_id: need(ctx).user_id, draft_id: ctx.qp.get("id") }))),
+
   // ── reports ──
   "GET report": async (_req, ctx) => {
     const q = ctx.qp;

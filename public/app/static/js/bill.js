@@ -488,3 +488,80 @@
     });
   });
 }());
+
+/* ── Chat and photo: the AI reads, the form stays the only thing that saves. ── */
+(function () {
+  var S = window.SB;
+  var $ = function (id) { return document.getElementById(id); };
+  var photo = null;
+
+  function status(msg, isErr) {
+    var el = $('ai-status');
+    el.textContent = msg;
+    el.className = 'assist-status' + (isErr ? ' error' : '');
+    el.hidden = !msg;
+  }
+
+  function done(r, btn) {
+    setBusy(btn, false);
+    if (!r.ok) return status(errMsg(r.code, r.params), true);
+    window.fillBillFromDraft(r.data);
+    var msg = t('input.read_done');
+    if (r.data.unknown && r.data.unknown.length) msg += ' ' + t('input.unknown', r.data.unknown.join(', '));
+    status(msg, false);
+  }
+
+  $('ai-chat-go').addEventListener('click', function (ev) {
+    var btn = ev.currentTarget;
+    var text = $('ai-text').value.trim();
+    if (!text) return $('ai-text').focus();
+    setBusy(btn, true);
+    status(t('input.reading'));
+    api('ai/chat', { body: { group_id: S.gid, text: text } }).then(function (r) { done(r, btn); });
+  });
+
+  /* Shrink before upload: 1600px long side, JPEG 0.85. Receipts stay
+     readable and a 5 MB phone photo becomes a few hundred KB. */
+  function shrink(file) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function () {
+        var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        var c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) { resolve(b || file); }, 'image/jpeg', 0.85);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+
+  $('ai-file').addEventListener('change', function () {
+    var f = $('ai-file').files[0];
+    if (!f) return;
+    shrink(f).then(function (b) {
+      photo = b;
+      var th = $('ai-thumb');
+      th.src = URL.createObjectURL(b);
+      th.hidden = false;
+      $('ai-photo-go').disabled = false;
+      status('');
+    });
+  });
+
+  $('ai-photo-go').addEventListener('click', function (ev) {
+    if (!photo) return;
+    var btn = ev.currentTarget;
+    var fd = new FormData();
+    fd.append('group_id', S.gid);
+    fd.append('caption', $('ai-caption').value);
+    fd.append('file', photo, 'receipt.jpg');
+    setBusy(btn, true);
+    status(t('input.reading'));
+    api('ai/photo', { body: fd }).then(function (r) { done(r, btn); });
+  });
+}());

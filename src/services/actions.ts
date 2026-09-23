@@ -25,6 +25,7 @@ import { addDays, cleanText, isDate, localDate, safeTimezone, DEFAULT_TZ } from 
 import { compute, viewOf, type GroupView } from "./ledger";
 import { loadGroup, loadGroups, lockGroup, type GroupState, type MemberRow } from "./repo";
 import { findUserByUsername, getMe } from "./user_service";
+import { AiUnavailable } from "./llm_client";
 
 export type Params = Record<string, unknown>;
 
@@ -882,4 +883,88 @@ export async function getReport(p: { user_id: string; group_id: unknown; type?: 
     return { kind: "file" as const, bytes, filename: `${base}.${p.format}`, type: p.format === "png" ? "image/png" : "application/pdf" };
   }
   return { kind: "text" as const, text: renderText(doc), filename: `${base}.txt` };
+}
+
+// ── AI drafts (chat text, receipt photo) ────────────────────────────────────
+
+const AI_LIMIT = Number(process.env.AI_DAILY_LIMIT || 50);
+
+/** Count one AI read BEFORE calling the model; refuse past the daily cap. */
+async function _spendAi(userId: string, today: string): Promise<void> {
+  const r = await fetchone(
+    `INSERT INTO ai_usage (user_id, day, count) VALUES ($1, $2, 1)
+     ON CONFLICT (user_id, day) DO UPDATE SET count = ai_usage.count + 1 RETURNING count`,
+    [userId, today],
+  );
+  if (Number(r?.[0] ?? 0) > AI_LIMIT) fail("ai_limit", {}, 429);
+}
+
+async function _draftCtx(userId: string, groupId: unknown) {
+  const s = await loadGroup(String(groupId ?? ""));
+  if (!s) fail("group_not_found", {}, 404);
+  const me = _meOf(s, userId);
+  if (!me) fail("group_not_found", {}, 404);
+  if (s.group.status !== "open") fail("group_settled", {}, 409);
+  if (!me.active) fail("member_inactive", {}, 403);
+  const today = localDate(s.group.timezone);
+  return { s, me, today, ctx: { members: s.members, sender: me.id, currency: s.group.currency, today } };
+}
+
+async function _saveDraft(groupId: string, userId: string, source: string, draft: unknown): Promise<string> {
+  const { newToken } = await import("../ids");
+  const id = newToken(12);
+  await execute(
+    `INSERT INTO drafts (draft_id, group_id, user_id, source, payload, expires_at) VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '1 day')`,
+    [id, groupId, userId, source === "photo" ? "photo" : source === "telegram" ? "telegram" : "chat", JSON.stringify(draft)],
+  );
+  return id;
+}
+
+function _aiError(e: unknown): never {
+  if (e instanceof ActionError) throw e;
+  if (e instanceof AiUnavailable) fail("ai_unavailable", {}, 503);
+  console.error("[ai]", e);
+  fail("ai_failed", {}, 502);
+}
+
+export async function aiDraftFromText(p: { user_id: string; group_id: unknown; text: unknown; source?: "chat" | "telegram" }) {
+  const text = String(p.text ?? "").trim();
+  if (!text) fail("description_required");
+  const { s, today, ctx } = await _draftCtx(p.user_id, p.group_id);
+  await _spendAi(p.user_id, today);
+  const { parseChat } = await import("./ai_parse");
+  try {
+    const { draft } = await parseChat(text, ctx, p.source ?? "chat");
+    const draft_id = await _saveDraft(s.group.group_id, p.user_id, draft.source, draft);
+    return { draft_id, ...draft };
+  } catch (e) {
+    _aiError(e);
+  }
+}
+
+export async function aiDraftFromImage(p: { user_id: string; group_id: unknown; bytes: Uint8Array; mime: string; caption?: unknown; source?: "photo" | "telegram" }) {
+  if (!p.bytes?.length || p.bytes.length > 10 * 1024 * 1024 || !/^image\/(jpeg|png|webp|heic|heif)$/.test(p.mime)) fail("image_invalid");
+  const { s, today, ctx } = await _draftCtx(p.user_id, p.group_id);
+  await _spendAi(p.user_id, today);
+  const { normalizeImage } = await import("./llm_client");
+  const { parseReceipt } = await import("./ai_parse");
+  try {
+    const img = await normalizeImage(p.bytes, p.mime);
+    const { draft } = await parseReceipt({ b64: Buffer.from(img.bytes).toString("base64"), mime: img.mime }, String(p.caption ?? ""), ctx, p.source ?? "photo");
+    const draft_id = await _saveDraft(s.group.group_id, p.user_id, draft.source, draft);
+    return { draft_id, ...draft };
+  } catch (e) {
+    _aiError(e);
+  }
+}
+
+/** A saved draft (Telegram confirm, "Edit in app" link). */
+export async function getDraft(p: { user_id: string; draft_id: unknown }) {
+  const r = await fetchone(
+    "SELECT group_id, payload, status FROM drafts WHERE draft_id = $1 AND user_id = $2 AND expires_at > NOW()",
+    [String(p.draft_id ?? ""), p.user_id],
+  );
+  if (!r) fail("draft_not_found", {}, 404);
+  const payload = typeof r[1] === "string" ? JSON.parse(r[1] as string) : r[1];
+  return { draft_id: String(p.draft_id), group_id: String(r[0]), status: String(r[2]), ...(payload as object) };
 }
