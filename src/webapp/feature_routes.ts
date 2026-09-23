@@ -4,7 +4,7 @@
  */
 import * as A from "../services/actions";
 import { addRoutes } from "./api_routes";
-import { json } from "./http";
+import { binResponse, json } from "./http";
 import { err } from "../errors";
 import type { User } from "./http";
 
@@ -24,6 +24,23 @@ addRoutes({
   "POST rate/delete": async (_req, ctx) => answer(await A.run(() => A.deleteRate({ ...ctx.body, user_id: need(ctx).user_id }))),
   "POST rate/auto": async (_req, ctx) => answer(await A.run(() => A.suggestRate({ ...ctx.body, user_id: need(ctx).user_id }))),
   "POST group/currency": async (_req, ctx) => answer(await A.run(() => A.changeCurrency({ ...ctx.body, user_id: need(ctx).user_id }))),
+
+  // ── reports ──
+  "GET report": async (_req, ctx) => {
+    const q = ctx.qp;
+    const r = await A.run(() => A.getReport({
+      user_id: need(ctx).user_id, group_id: q.get("group_id"), type: q.get("type") ?? "group",
+      member: q.get("member") ?? undefined, format: q.get("format") ?? "text", lang: q.get("lang") ?? ctx.user?.lang ?? "en",
+    }));
+    if (!r.ok) return answer(r);
+    const d = r.data;
+    if (d.kind === "text") return json({ ok: true, data: { text: d.text, filename: d.filename } });
+    return binResponse(d.bytes, {
+      "content-type": d.type,
+      "content-disposition": `attachment; filename="${d.filename}"`,
+      "cache-control": "no-store",
+    });
+  },
 
   // ── admin: apply migrations (Bearer SETUP_SECRET) ──
   "POST admin/migrate": async (req) => {

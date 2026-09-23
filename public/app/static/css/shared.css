@@ -1161,7 +1161,7 @@
   .copy-box input { flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: 13px; }
   .report-text {
     width: 100%; min-height: 260px; font-family: var(--mono); font-size: 12px;
-    line-height: 1.5; white-space: pre; resize: vertical;
+    line-height: 1.5; white-space: pre-wrap; resize: vertical;
   }
   .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn-row .btn { flex: 1 1 auto; }

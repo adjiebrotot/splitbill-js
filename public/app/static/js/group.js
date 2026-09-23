@@ -200,11 +200,18 @@
     } else box.hidden = true;
   }
 
+  /* "16250.5" -> "16,250.5" / "16.250,5". */
+  function fmtRate(text) {
+    var parts = String(text).split('.');
+    var id = window.__LANG__ === 'id';
+    return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, id ? '.' : ',') + (parts[1] ? (id ? ',' : '.') + parts[1] : '');
+  }
+
   function rateText(r) {
     // Stored big side first: inverted means 1 settlement unit = rate foreign.
     return r.inverted
-      ? '1 ' + G().currency + ' = ' + r.rate + ' ' + r.currency
-      : '1 ' + r.currency + ' = ' + r.rate + ' ' + G().currency;
+      ? '1 ' + G().currency + ' = ' + fmtRate(r.rate) + ' ' + r.currency
+      : '1 ' + r.currency + ' = ' + fmtRate(r.rate) + ' ' + G().currency;
   }
   S.rateText = rateText;
 
@@ -541,4 +548,70 @@
     S.act('group/currency', { currency: $('ccy-new').value, rates: rates }, t('common.saved'), $('ccy-save'))
       .then(function (r) { if (r.ok) closeModal('modal-ccy'); });
   });
+}());
+
+/* ── Report modal: text preview, Copy, PNG, PDF ── */
+(function () {
+  var S = window.SB;
+  var $ = function (id) { return document.getElementById(id); };
+  var type = 'group';
+
+  function query(format) {
+    var q = 'report?group_id=' + encodeURIComponent(S.gid) + '&type=' + type + '&format=' + format + '&lang=' + (window.__LANG__ || 'en');
+    if (type === 'member') q += '&member=' + encodeURIComponent($('report-member').value);
+    return q;
+  }
+
+  function load() {
+    $('report-member-field').hidden = type !== 'member';
+    $('report-text').value = t('input.reading');
+    api(query('text')).then(function (r) {
+      $('report-text').value = r.ok ? r.data.text : errMsg(r.code, r.params);
+    });
+  }
+
+  function setType(tp) {
+    type = tp;
+    var tabs = $('report-tabs').querySelectorAll('[data-rtype]');
+    for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('active', tabs[i].getAttribute('data-rtype') === tp);
+    load();
+  }
+
+  $('btn-report').addEventListener('click', function () {
+    if (S.offline) return showToast(errMsg('offline'), 'error');
+    S.memberOptions($('report-member'), S.view.me);
+    setType('group');
+    openModal('modal-report');
+  });
+  $('report-tabs').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-rtype]');
+    if (b) setType(b.getAttribute('data-rtype'));
+  });
+  $('report-member').addEventListener('change', load);
+  $('report-copy').addEventListener('click', function () { S.copyText($('report-text').value); });
+
+  function download(format, btn) {
+    setBusy(btn, true);
+    fetch('/app/api/' + query(format), { credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) return r.json().then(function (j) { throw j; });
+      var name = (r.headers.get('content-disposition') || '').replace(/^.*filename="([^"]+)".*$/, '$1') || ('report.' + format);
+      return r.blob().then(function (b) {
+        var file = new File([b], name, { type: b.type });
+        // Phones: the share sheet sends the file straight into a chat.
+        if (navigator.canShare && navigator.canShare({ files: [file] }) && /Mobi|Android/i.test(navigator.userAgent)) {
+          return navigator.share({ files: [file], title: name }).catch(function () {});
+        }
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      });
+    }).catch(function (j) {
+      showToast(errMsg((j && j.code) || 'network', j && j.params), 'error');
+    }).then(function () { setBusy(btn, false); });
+  }
+  $('report-png').addEventListener('click', function (ev) { download('png', ev.currentTarget); });
+  $('report-pdf').addEventListener('click', function (ev) { download('pdf', ev.currentTarget); });
 }());

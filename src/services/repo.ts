@@ -166,7 +166,7 @@ SELECT g.group_id, json_build_object(
     SELECT json_agg(json_build_object(
       'currency', r.currency,
       'effective', CASE WHEN r.effective_date = '-infinity'::date THEN '-infinity' ELSE to_char(r.effective_date, 'YYYY-MM-DD') END,
-      'rate', r.rate::text, 'inverted', r.inverted, 'source', r.source, 'set_at', r.set_at
+      'rate', trim_scale(r.rate)::text, 'inverted', r.inverted, 'source', r.source, 'set_at', r.set_at
     ) ORDER BY r.currency, r.effective_date)
     FROM fx_rates r WHERE r.group_id = g.group_id), '[]'::json)
 ) AS state

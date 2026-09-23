@@ -854,3 +854,32 @@ export async function changeCurrency(p: { user_id: string } & Params) {
     return { currency };
   });
 }
+
+// ── reports ─────────────────────────────────────────────────────────────────
+
+/**
+ * Group or individual report, as text, PNG or PDF. `member` defaults to the
+ * caller's own member row. Every figure comes from the group view (engine).
+ */
+export async function getReport(p: { user_id: string; group_id: unknown; type?: unknown; member?: unknown; format?: unknown; lang?: unknown }) {
+  const v = await getGroupView({ user_id: p.user_id, group_id: p.group_id });
+  const { groupReport, memberReport, renderText } = await import("./report");
+  const { normalizeLang } = await import("../i18n");
+  const lang = normalizeLang(String(p.lang ?? ""));
+  let doc;
+  if (p.type === "member") {
+    const mid = String(p.member ?? v.me ?? "");
+    if (!v.members.some((m) => m.id === mid)) fail("member_unknown");
+    doc = memberReport(v, mid, lang);
+  } else if (p.type === "group" || p.type === undefined) {
+    doc = groupReport(v, lang);
+  } else fail("report_invalid");
+  const slug = (v.group.name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "split").slice(0, 40);
+  const base = `${slug}-${p.type === "member" ? "individual" : "group"}${v.group.status === "settled" ? "" : "-not-settled"}`;
+  if (p.format === "png" || p.format === "pdf") {
+    const bin = await import("./report_binary");
+    const bytes = p.format === "png" ? await bin.renderPng(doc) : await bin.renderPdf(doc);
+    return { kind: "file" as const, bytes, filename: `${base}.${p.format}`, type: p.format === "png" ? "image/png" : "application/pdf" };
+  }
+  return { kind: "text" as const, text: renderText(doc), filename: `${base}.txt` };
+}
