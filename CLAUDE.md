@@ -29,6 +29,14 @@ All media (web API, Telegram, future ones) call `src/services/actions.ts`. No ro
 web / Telegram → actions.ts → repo.ts (one-query group load) + ledger.ts → engine
 ```
 
+## AI reads, code computes
+
+Chat and receipt photos go through `src/services/ai_parse.ts`. The models (OpenRouter, `llm_client.ts`) only COPY names and numbers; amounts are evaluated exactly by `amount_expr.ts` / the engine's `parseAmount`, names matched to members by code. AI output is always a draft the person saves through the normal bill form. Unknown names are reported, never created. Prompt or parsing change → run `scripts/parse_harness.ts` (live, costs money) and keep `tests/unit/ai_parse.test.ts` green.
+
+## Telegram is a medium, not a second app
+
+`src/telegram/bot.ts` parses updates and calls `actions.ts`, nothing else. Group chats run with privacy mode ON: only `/cmd@bot`, bare `/cmd` when the bot spoke last, and replies to the bot arrive, so every group flow is a command or a ForceReply. Keep `allowed_updates` = message, callback_query, my_chat_member (`telegram/api.ts`). Test with `tests/unit/db_telegram.test.ts` (Bot API and AI mocked).
+
 ## Node runtime
 
 Route handlers that touch `pg`, `@node-rs/bcrypt`, `@napi-rs/canvas` or `pdf-lib` export `runtime = "nodejs"`. Native packages stay in `serverExternalPackages` (`next.config.mjs`).
@@ -69,6 +77,6 @@ Escape with `esc()` (ui.js) first. Same for any value in an attribute.
 
 ```
 npm test                                    # unit + contract tests
-TEST_DATABASE_URL=postgresql://... npm test # also runs tests/unit/db_actions.test.ts
+TEST_DATABASE_URL=postgresql://... npm test # also runs the Postgres tests (one schema per file)
 DATABASE_URL=... DB_DRIVER=pg npx tsx scripts/integrity_harness.ts
 ```

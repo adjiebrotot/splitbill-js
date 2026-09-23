@@ -14,6 +14,16 @@
     return /^\/(?!\/|\\)/.test(n) ? n : '/app';
   }
 
+  // Keep ?next= across Sign In <-> Create Account, so an invite link still
+  // lands on the invite after a new person registers.
+  var nextParam = new URLSearchParams(location.search).get('next');
+  if (nextParam && /^\/(?!\/|\\)/.test(nextParam)) {
+    var links = document.querySelectorAll('a[href="/register"], a[href="/login"]');
+    for (var j = 0; j < links.length; j++) {
+      links[j].setAttribute('href', links[j].getAttribute('href') + '?next=' + encodeURIComponent(nextParam));
+    }
+  }
+
   // Language flags: remember the choice and re-render in it.
   var flags = document.querySelectorAll('.lang-flag-btn');
   for (var i = 0; i < flags.length; i++) {

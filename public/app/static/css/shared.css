@@ -9,6 +9,11 @@
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  /* The hidden attribute always wins: a .btn's display:inline-flex would
+     otherwise override the browser's [hidden] rule and show a control the
+     page meant to hide (owner-only actions, offline writes). */
+  [hidden] { display: none !important; }
+
   /* ── Scrollbars: invisible everywhere, scrolling untouched ──────────────
      Every scroll container in the app (report tables, history table, modal
      bodies, the page itself) keeps its overflow behaviour — wheel, trackpad,

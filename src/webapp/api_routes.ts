@@ -44,6 +44,8 @@ const ROUTES: Record<string, Handler> = {
   "GET auth/logout": async () => redirect("/login", clearSessionCookies()),
   "GET auth/providers": async () =>
     json({ ok: true, data: { google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) } }, 200, { "cache-control": "public, max-age=300" }),
+  "GET auth/google/start": async (req) => (await import("./google_auth")).googleStart(req),
+  "GET auth/google/callback": async (req) => (await import("./google_auth")).googleCallback(req),
   "POST auth/verify": async (_req, ctx) => answer(await A.run(() => U.verifyEmail(need(ctx).user_id, ctx.body.code))),
   "POST auth/resend": async (_req, ctx) => answer(await A.run(() => U.resendCode(need(ctx).user_id))),
 

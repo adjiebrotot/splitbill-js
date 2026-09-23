@@ -1162,3 +1162,17 @@ export async function cancelDraft(p: { user_id: string; draft_id: string }) {
   await execute("UPDATE drafts SET status = 'cancelled' WHERE draft_id = $1 AND user_id = $2 AND status = 'pending'", [p.draft_id, p.user_id]);
   return { cancelled: true };
 }
+
+// ── housekeeping (daily cron) ───────────────────────────────────────────────
+
+/** Prune short-lived rows. Never touches bills, payments or the audit log. */
+export async function cleanup() {
+  const n = async (sql: string) => execute(sql);
+  return {
+    drafts: await n("DELETE FROM drafts WHERE expires_at < NOW() - INTERVAL '7 days'"),
+    link_codes: await n("DELETE FROM telegram_link_codes WHERE expires_at < NOW() - INTERVAL '1 day'"),
+    updates: await n("DELETE FROM telegram_updates WHERE received_at < NOW() - INTERVAL '7 days'"),
+    pending: await n("DELETE FROM telegram_pending WHERE expires_at < NOW()"),
+    ai_usage: await n("DELETE FROM ai_usage WHERE day < CURRENT_DATE - 60"),
+  };
+}

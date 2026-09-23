@@ -200,3 +200,33 @@ export async function findUserByUsername(username: unknown): Promise<{ user_id: 
   return r ? { user_id: String(r[0]), username: String(r[1]), display_name: String(r[2]) } : null;
 }
 
+
+/**
+ * Sign in with a Google-verified email. An existing account with that email
+ * signs in (and counts as verified); a new email gets an account at once,
+ * with a username made from the email and no password (Google only).
+ */
+export async function googleSignIn(p: { email: string; name: string; lang: unknown; timezone?: unknown }): Promise<Me> {
+  const email = p.email.trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) fail("email_invalid");
+  const found = await fetchone("SELECT user_id::text FROM users WHERE LOWER(email) = $1", [email]);
+  if (found) {
+    await execute("UPDATE users SET email_verified = TRUE WHERE user_id = $1", [found[0]]);
+    await execute("DELETE FROM email_verifications WHERE user_id = $1", [found[0]]);
+    return (await getMe(String(found[0])))!;
+  }
+  const base = (email.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").slice(0, 24) || "user").padEnd(3, "_");
+  const display = cleanText(p.name, 40) || base;
+  const lang = _lang(p.lang);
+  const tz = safeTimezone(p.timezone) ?? DEFAULT_TZ;
+  return atomic(async () => {
+    let username = base;
+    for (let i = 2; await fetchone("SELECT 1 FROM users WHERE LOWER(username) = LOWER($1)", [username]); i++) username = `${base.slice(0, 28)}${i}`;
+    const r = await fetchone(
+      `INSERT INTO users (username, display_name, email, email_verified, password, language, timezone)
+       VALUES ($1, $2, $3, TRUE, NULL, $4, $5) RETURNING user_id::text`,
+      [username, display, email, lang, tz],
+    );
+    return (await getMe(String(r![0])))!;
+  });
+}

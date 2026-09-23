@@ -7,11 +7,11 @@
  *   page loads      network first; offline, the page's cached shell, which
  *                   then renders its last boot payload from localStorage.
  */
-const CACHE = 'sb-b036ae39';
+const CACHE = 'sb-4bc9d36d';
 const STATIC = [
-  '/app/static/css/shared.css?v=8deb5cc5',
+  '/app/static/css/shared.css?v=88b972d3',
   '/app/static/assets/icons.svg?v=17f4531f',
-  '/app/static/js/i18n-all.js?v=b3e88169',
+  '/app/static/js/i18n-all.js?v=a969d22f',
   '/app/static/js/boot.js?v=4f3053eb',
   '/app/static/js/engine.js?v=f52c3ca1',
   '/app/static/js/ui.js?v=b30fcd5a',
@@ -23,15 +23,15 @@ const STATIC = [
   '/app/static/js/bill.js?v=5660c6f0',
   '/app/static/js/settings.js?v=445072ee',
   '/app/static/js/join.js?v=20af1930',
-  '/app/static/js/auth.js?v=21ffab8d',
-  '/app/static/icons/icon-192.png?v=b9439c9e',
-  '/app/static/pages/landing.html?v=336b8790',
-  '/app/static/pages/login.html?v=5313470c',
-  '/app/static/pages/register.html?v=cc3c5db8',
-  '/app/static/pages/home.html?v=4798c9a3',
-  '/app/static/pages/group.html?v=85cea0b1',
-  '/app/static/pages/join.html?v=d776513c',
-  '/app/static/pages/settings.html?v=3eea281b',
+  '/app/static/js/auth.js?v=2cde165a',
+  '/app/static/icons/icon-192.png?v=34543553',
+  '/app/static/pages/landing.html?v=7e516151',
+  '/app/static/pages/login.html?v=49a27c35',
+  '/app/static/pages/register.html?v=cefb3da2',
+  '/app/static/pages/home.html?v=83446332',
+  '/app/static/pages/group.html?v=e7854e2e',
+  '/app/static/pages/join.html?v=109733e1',
+  '/app/static/pages/settings.html?v=60e3b5aa',
 ];
 
 /* Which shell a pretty URL is served from (mirrors next.config.mjs rewrites). */
