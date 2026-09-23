@@ -1,0 +1,1232 @@
+/* shared.css: Split Bill design tokens and components.
+ *
+ * Inherited from finance-tracker-js public/app/static/css/shared.css (the
+ * generic part: tokens, buttons, modal, toast, shell, tool chrome, tooltip,
+ * spacing rhythm). Split Bill's own components are at the foot, above the
+ * SPACING RHYTHM block, which stays last. Values come off DESIGN-SYSTEM.md;
+ * never invent a gap. Fonts are loaded by <link> in each page, not @import.
+ */
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── Scrollbars: invisible everywhere, scrolling untouched ──────────────
+     Every scroll container in the app (report tables, history table, modal
+     bodies, the page itself) keeps its overflow behaviour — wheel, trackpad,
+     touch drag, keyboard and programmatic scrolling all still work. Only the
+     bar itself is gone, so a sideways-scrolling table no longer loses a row of
+     height to a track on desktop and no longer paints a grey thumb over the
+     last row on mobile. The tables that scroll sideways carry their own edge
+     shadows (.history-table-wrap, .report-table-wrap), which is what signals
+     "there is more" now that the bar does not. */
+  * {
+    scrollbar-width: none;        /* Firefox */
+    -ms-overflow-style: none;     /* legacy Edge/IE */
+  }
+  *::-webkit-scrollbar {          /* Chrome, Safari, Edge */
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
+  :root {
+    --bg:           #f0f4ff;
+    /* One step under --bg, for bands that have to separate from a panel already
+       sitting on --bg (report section headers over drill-down rows).
+       --text-muted on it is 4.87:1. */
+    --bg-sunken:    #e4eaf8;
+    --surface:      #ffffff;
+
+    /* Pastel fills keep the brand look; each pairs with an "ink" token that is
+       dark enough to carry text at >=4.5:1. Never put text on a fill without
+       using its matching ink. */
+    --primary:      #8bb8f8;
+    --primary-dark: #5a91e8;
+    --primary-strong: #2f6fd0;  /* hover fill — white on it clears 4.5:1 */
+    --primary-ink:  #14356b;    /* primary-coloured text on white/bg */
+    --secondary:    #b8e0d2;
+    --secondary-ink:#12402f;
+    --accent:       #ffd6e0;
+    --accent-ink:   #4a1a2a;
+
+    --text:         #2d3436;
+    --text-muted:   #5b6670;    /* 5.87:1 on white, 5.33:1 on --bg */
+    --border:       #e0e6f0;
+    --border-strong:#7a86a0;    /* non-text contrast >=3:1 both surfaces */
+    --focus:        #1d4ed8;
+
+    --success:      #c8f7c5;
+    --success-ink:  #14532d;
+    --danger:       #ffb3ba;
+    --danger-ink:   #8c1d2b;
+    --danger-strong:#b3202f;    /* solid danger fill, white text */
+
+    --radius:       14px;
+    /* The one vertical gap in the app: between two blocks inside a card, and
+       between two cards. Everything stacked is this far apart, so a page reads
+       as one rhythm rather than as six components that each picked a number.
+       See "SPACING RHYTHM" at the foot of this file. */
+    --gap:          14px;
+    --shadow:       0 2px 16px rgba(120,160,220,0.12);
+    --font:         'DM Sans', sans-serif;
+    --mono:         'DM Mono', monospace;
+
+    --tap-min:      44px;       /* minimum comfortable touch target */
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  input, select, textarea, button {
+    font-family: var(--font);
+    font-size: 15px;
+  }
+
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px;
+    border: 1px solid var(--border);
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+  }
+
+  /* Dense contexts (report/table micro-labels) where all-caps hurts scanning. */
+  label.label-plain {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 13px;
+  }
+
+  input[type=text], input[type=password], input[type=number], input[type=date],
+  input[type=datetime-local], input[type=month], input[type=email], select, textarea {
+    width: 100%;
+    min-height: var(--tap-min);
+    padding: 10px 13px;
+    /* The fill (--bg) sits at 1.09:1 against a white card, so the border is the
+       only cue that this is an input. It has to carry 3:1 by itself. */
+    border: 1.5px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237f8c8d' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--focus);
+    background: #fff;
+  }
+
+  /* ── FOCUS VISIBILITY ──────────────────────────────────────────────────────
+     Buttons previously had no focus style at all, and inputs cleared the UA
+     outline in favour of a 1.85:1 border tint. Keyboard users had nothing to
+     follow. One ring, every interactive element, drawn outside the control so
+     it never reflows layout. */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  .btn:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role="tab"]:focus-visible,
+  .combo-item:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  /* Inputs sit flush inside cards — pull the ring in so it is not clipped. */
+  input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline-offset: 1px;
+  }
+
+  /* ── BUTTONS ───────────────────────────────────────────────────────────────
+     Variants are ROLES, not colours. Pick by what the button does:
+       primary   — the one main action of a view
+       secondary — neutral supporting action (export, copy, cancel)
+       ghost     — low-emphasis chrome (pagination, per-format export row)
+       danger    — destructive only (delete, revoke)
+       accent    — decorative highlight; never the sole signal for meaning
+     Do not reach for a variant because of how it looks. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px 22px;
+    min-height: var(--tap-min);
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    letter-spacing: 0.01em;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary { background: var(--primary); color: #1a2a4a; }
+  /* white on --primary-dark was 3.16:1; --primary-strong clears 4.5:1 */
+  .btn-primary:hover { background: var(--primary-strong); color: #fff; }
+  .btn-secondary { background: var(--secondary); color: var(--secondary-ink); }
+  .btn-secondary:hover { background: #8fcfbc; }
+  .btn-accent { background: var(--accent); color: var(--accent-ink); }
+  .btn-accent:hover { background: #ffb3c8; }
+
+  /* Low-emphasis chrome: pagination and per-format export rows. These used to
+     borrow .btn-secondary's mint fill, which read as a real action. */
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+    /* The border is the only thing marking this control's bounds, so it has to
+       clear 3:1 on its own (WCAG 1.4.11) — --border at 1.25:1 did not. */
+    border: 1.5px solid var(--border-strong);
+  }
+  .btn-ghost:hover { background: var(--bg); color: var(--text); border-color: var(--border-strong); }
+
+  /* Destructive only. Outlined at rest so it never competes with the primary
+     action, solid red on hover/focus once intent is clear. */
+  .btn-danger {
+    background: var(--danger);
+    color: var(--danger-ink);
+    border: 1.5px solid var(--danger-ink);
+  }
+  .btn-danger:hover { background: var(--danger-strong); color: #fff; border-color: var(--danger-strong); }
+
+  .btn-full { width: 100%; }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+  /* Compact variant for in-table controls. Still meets the 44px touch target
+     via padding, so it stays tappable without bloating dense rows. */
+  .btn-compact {
+    padding: 6px 12px;
+    font-size: 13px;
+    min-height: 36px;
+  }
+  @media (max-width: 768px) {
+    .btn-compact { min-height: var(--tap-min); }
+  }
+
+  /* Icon-only controls must still be reachable by thumb. Always pair with an
+     aria-label — the glyph is not an accessible name. */
+  .btn-icon {
+    min-width: var(--tap-min);
+    padding: 0 12px;
+  }
+
+
+  .field { margin-bottom: 14px; }
+
+  /* ── VIEW TABS ──
+     One row of pills that switches what a block SHOWS, never what it holds:
+     the income statement between its table and its Sankey, the report between
+     Monthly / Yearly / Trend, the Auto Budget preview between the same two
+     readings of one plan. It lived in the app template's own <style> and the
+     Auto Budget modal is the second page to want it, which is exactly when a
+     look stops belonging to one page.
+     Position is the caller's business: a row of tabs beside a title takes its
+     own margin there, so nothing here decides where it sits. */
+  .is-view-tabs { display: flex; gap: 3px; }
+  .is-view-tab {
+    padding: 3px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-family: var(--font);
+  }
+  .is-view-tab.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  .is-view-tab:not(.active):hover { background: var(--bg); }
+
+  /* Visible to screen readers only — for column headers and labels that would
+     be redundant on screen but leave the control unnamed without them. */
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* ── REDUCED MOTION ────────────────────────────────────────────────────────
+     Honour the OS setting: no press-scale, no sliding toast, no animated bar
+     fills. Opacity fades are kept — they do not trigger vestibular symptoms. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+    .btn { transition: background 0.15s; }
+    .btn:active { transform: none; }
+    .toast { transition: opacity 0.25s; transform: translateX(-50%); }
+    .toast.show { transform: translateX(-50%); }
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    padding: 11px 22px;
+    border-radius: 10px;
+    font-weight: 500;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.25s, transform 0.25s;
+    z-index: 9999;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: 90vw;
+    text-align: center;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.success { background: var(--success); color: #1a4a18; }
+  .toast.error   { background: var(--danger);  color: #4a1018; }
+
+  @media (min-width: 769px) {
+    .toast { bottom: 30px; }
+  }
+
+  /* ── CONFIRM DIALOG (ui.js) ────────────────────────────────────────────────
+     Replaces window.confirm(): styleable, translated with the rest of the app,
+     and able to give a destructive action a red button instead of an OK that
+     looks identical to every other OK. */
+  .confirm-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(26, 34, 56, 0.45);
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .confirm-overlay.open { display: flex; }
+  .confirm-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 40px rgba(26, 34, 56, 0.28);
+    padding: 22px;
+    width: 100%;
+    max-width: 420px;
+  }
+  .confirm-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .confirm-msg {
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.55;
+    margin-bottom: 20px;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+  }
+  .confirm-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .confirm-actions .btn { flex: 1 1 auto; min-width: 120px; }
+  @media (max-width: 420px) {
+    .confirm-actions { flex-direction: column-reverse; }
+  }
+
+  /* ── FORM MODAL (ui.js openModal) ──────────────────────────────────────────
+     Same backdrop and card treatment as the confirm dialog, so the two read as
+     one system — but sized for a whole form, with the body as the scroller so a
+     tall form never scrolls the page behind it. */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(26, 34, 56, 0.45);
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 40px rgba(26, 34, 56, 0.28);
+    width: 100%;
+    max-width: 520px;
+    max-height: calc(100dvh - 40px);
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    /* 20px of air at the top and one block gap under the title, so the form
+       starts exactly as far below the title as its own rows are apart. */
+    padding: 20px 22px var(--gap);
+    flex-shrink: 0;
+  }
+  .modal-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .modal-close { flex-shrink: 0; }
+  .modal-body {
+    /* An OUTLINE is not part of a scroll container's scrollable overflow, so
+       overflow-y clips whatever of it falls outside the padding box: the focus
+       ring on the first and last field of a modal lost its top / bottom edge
+       and read as a broken border. 4px of padding gives the ring (2px wide,
+       1px offset) room, and the matching negative margin hands that space
+       back, so the modal is laid out exactly as it was before. */
+    padding: 4px 22px;
+    margin: -4px 0;
+    overflow-y: auto;
+    flex: 1 1 auto;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    /* The last field gives up its own bottom margin (see SPACING RHYTHM), so
+       this padding is the whole gap above the buttons: 20px, the same as the
+       20px under them. */
+    padding: 20px 22px;
+    flex-shrink: 0;
+  }
+  .modal-actions .btn { flex: 1 1 auto; min-width: 120px; }
+  @media (max-width: 420px) {
+    .modal-overlay { padding: 10px; }
+    .modal-actions { flex-direction: column-reverse; }
+  }
+  /* ── EMPTY STATE FOR A SCROLLING TABLE ──
+     A message centred in a `<td colspan>` of a table wider than the phone is
+     centred off the side of the screen, so an empty card reads as a broken
+     one. setTableEmpty() (ui.js) hides the table and shows this block in the
+     card instead.
+
+     Drawn as the Manage tab's .manage-empty: a dashed box that holds the
+     collection's place. A bare centred line read as a broken card beside the
+     framed one the same app shows two tabs away. */
+  .table-empty {
+    color: var(--text-muted);
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.5;
+    background: var(--surface);
+    border: 1px dashed var(--border-strong);
+    border-radius: 10px;
+  }
+  /* ══ APP SHELL ══════════════════════════════════════════════════════════
+     The top bar and the content column every signed-in page wears. Built once
+     by topbar.js and mounted on /app, /app/settings, /app/family-settings and
+     the three tool pages, so the family can reach any of them from any of
+     them. Nothing here is page-specific: the bar's only variable is which item
+     is current, and topbar.js reads that off the URL.
+
+     Lived in the app template's own <style> until every other page grew one
+     too. Six copies of the same chrome is how the tool pages drifted the last
+     time, so it lives here now and nowhere else. */
+
+  .top-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 8px rgba(120,160,220,0.08);
+  }
+
+  /* The logo is the way home from every page that is not /app. */
+  .top-bar .logo {
+    font-weight: 600;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .top-nav { display: flex; gap: 4px; }
+
+  .top-nav a {
+    background: none;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .top-nav a.active {
+    background: var(--primary);
+    color: #1a2a4a;
+  }
+  .top-nav a:hover:not(.active) {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-muted);
+    position: relative;
+  }
+
+  .top-bar-right a {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+    padding: 5px 10px;
+    border-radius: 7px;
+    transition: background 0.15s;
+  }
+  .top-bar-right a:hover { background: var(--bg); }
+
+  .user-menu-wrap { position: relative; }
+
+  .username-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 10px 12px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .username-btn:hover { background: var(--bg); }
+
+  .user-dropdown {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 4px;
+    min-width: 150px;
+    z-index: 120;
+  }
+  .user-dropdown.open { display: block; }
+  .user-dropdown a {
+    display: block;
+    padding: 8px 12px;
+    border-radius: 7px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13px;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .user-dropdown a:hover { background: var(--bg); }
+  /* The page you are already on. Marked rather than hidden, so the menu keeps
+     the same five entries in the same order on every page. */
+  .user-dropdown a[aria-current="page"] {
+    background: var(--bg);
+    color: var(--primary-ink);
+    font-weight: 600;
+  }
+  .user-dropdown-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 8px;
+  }
+  /* The menu is two groups, not one list of five: Settings (the two settings
+     pages) then Tools (the three tool pages). The header names the group and
+     nothing else. */
+  .user-dropdown-group {
+    display: block;
+    padding: 8px 12px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  /* Sign out is the one destructive entry and sits last, under a divider. */
+  .user-dropdown-signout {
+    color: var(--danger-ink) !important;
+    font-weight: 600;
+  }
+  .user-dropdown-signout:hover { background: var(--danger) !important; }
+  .user-dropdown-secondary {
+    font-size: 11px !important;
+    color: var(--text-muted) !important;
+    opacity: 0.85;
+  }
+  .user-family-label {
+    display: block;
+    padding: 6px 12px 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+  }
+
+  /* The content column, on EVERY page. 900px including its 16px gutters is the
+     868px the cards actually occupy, which is what .settings-wrap caps at. */
+  .main-content {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px 16px 90px;
+  }
+
+  @media (max-width: 768px) {
+    .top-bar { padding: 0 12px; }
+    .top-bar .top-nav { display: none; }
+    .top-bar .logo { font-size: 14px; gap: 6px; }
+    .top-bar .logo span { display: none; }
+    .top-bar-right { gap: 0; }
+  }
+
+  /* ══ BOTTOM TAB BAR (mobile) ══════════════════════════════════════════════
+     The four app tabs, on a phone. The top nav hides at 768px above, so this
+     is the ONLY navigation there — and it is chrome, not /app's: it lived in
+     the /app template, which left every tool and settings page with no way
+     back to the main app on mobile at all. topbar.js builds it on every page
+     from the same TABS list the top nav uses. */
+
+  .bottom-tabs {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 100;
+    box-shadow: 0 -2px 12px rgba(120,160,220,0.1);
+  }
+
+  .bottom-tabs .tabs-row { display: flex; }
+
+  .tab-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 4px 8px;
+    background: none;
+    border: none;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.15s;
+    gap: 3px;
+    letter-spacing: 0.02em;
+  }
+  .tab-btn .tab-icon { font-size: 20px; }
+  .tab-btn.active { color: var(--primary-dark); }
+
+  @media (max-width: 768px) {
+    .bottom-tabs { display: block; }
+    /* The bar is fixed, so the column has to end above it. .main-content
+       already reserves 90px, which clears it; every page gets the same. */
+    .main-content { padding-bottom: 80px; }
+  }
+
+  /* ══ TOOL PAGE CHROME ═══════════════════════════════════════════════════
+     The Budgeting, Portfolio and Goal pages are ONE interface with three
+     subjects. Everything that makes them look and behave alike lives here, so
+     a change reaches all three at once — they carried three near-identical
+     copies of this under three prefixes (.bgt-*, .pf-*), which is exactly why
+     they drifted apart.
+
+     The shape every tool page holds to:
+
+       [←] Icon  Tool name              .settings-header
+       LABEL [ the one control that scopes the page ]      .tool-scope
+       ┌ .tool-card ─────────────────────────────────┐
+       │ [icon] Collection      [+ Add <thing>]      │  h2 + .tool-head-actions
+       │ rows, each ending in [✎][🗑]                 │  .tool-row-actions
+       └─────────────────────────────────────────────┘
+
+     Anything only one page has (goal bars, the ticker editor, budget bars)
+     stays in that page's own <style>. */
+
+  /* The page shell, shared with the Settings pages. Each page sets its own
+     max-width on .settings-wrap; everything else is the same everywhere. */
+  /* 868px, not 900: .main-content caps at 900 INCLUDING its 16px gutters, so
+     an 868 column is what the Transactions / History / Report / Manage cards
+     actually occupy. A tool page at 900 made every card jump 32px wider the
+     moment you left the main app. */
+  .settings-wrap { margin: 0 auto; max-width: 868px; }
+  .settings-header { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .settings-header h1 { font-size: 20px; font-weight: 600; }
+
+  /* The Settings and Family Settings card. Sized to .card on the main app, to
+     the pixel: the two pages carried their own copies at 24px and 22px padding
+     with a 16px gap, so a card on Settings stood a few pixels taller and wider
+     than the same card one page away. */
+  .settings-card {
+    background: var(--surface); border-radius: var(--radius);
+    border: 1px solid var(--border); box-shadow: var(--shadow);
+    padding: 20px; margin-bottom: 14px;
+  }
+  /* .tool-card h2, same size. The air below it is the card's own rhythm. */
+  .settings-card h2 { font-size: 15px; font-weight: 600; }
+  /* A description belongs to the title above it, so it hugs it instead of
+     taking the full block gap. */
+  .settings-card .card-desc {
+    font-size: 13px; color: var(--text-muted); margin-top: 4px; line-height: 1.5;
+  }
+
+  /* The ONE control that scopes the whole page: the account on Portfolio, the
+     month on Budgeting, the display currency on Goal. Always directly under
+     the title, never inside a card — a control that re-draws every card below
+     it must not look like it belongs to one of them. */
+  .tool-scope {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 6px 12px; margin-bottom: 20px;
+  }
+  /* The global label token (13px/600), the same one every field on the
+     Transactions and History cards wears. margin-bottom: 0 because this one
+     sits BESIDE its control rather than above it. */
+  .tool-scope > label { margin-bottom: 0; }
+  .tool-scope select, .tool-scope input {
+    width: auto; min-width: 200px; max-width: 100%;
+  }
+  .tool-scope-actions { display: flex; gap: 6px; }
+
+  .tool-card {
+    background: var(--surface); border-radius: var(--radius);
+    border: 1px solid var(--border); box-shadow: var(--shadow);
+    padding: 20px; margin-bottom: 14px;
+  }
+  .tool-card h2 {
+    font-size: 15px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  /* What the card's collection can do, at the end of its own title. */
+  .tool-head-actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  /* What ONE row can do. Same pair, same order, same page position on every
+     tool: edit then delete.
+
+     Aligned to the END of its cell, so the LAST action holds one column
+     whatever a row carries. `td.act` is width:1%, which sizes the column to the
+     widest row, so a row with fewer buttons than its neighbours sat left in a
+     wider cell and its trash landed under the row above's pencil. That is the
+     Side Job Tool's closed row, which drops its pencil. Every table whose rows
+     all carry the same buttons is unaffected: the content fills the cell. */
+  .tool-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: none; }
+  /* On a phone the pair keeps its 44px targets and the row gives up its
+     gutters instead: at 8px gap plus the cell's own padding the pair pushed a
+     three-column table 13px past its card and clipped the trash. */
+  @media (max-width: 520px) { .tool-row-actions { gap: 4px; } }
+
+  /* Two fields that are one answer: an amount and its currency, a target and
+     its date. One column once there is no room for two. */
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 560px) { .form-row { grid-template-columns: 1fr; } }
+
+  .tool-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+  .tool-controls .field { margin-bottom: 0; flex: 0 1 340px; min-width: 180px; }
+
+  /* One labelled dropdown per column a table can be narrowed by, whose options
+     are the values that table actually holds. */
+  .tool-filters {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+  .tool-filters label {
+    display: flex; flex-direction: column; gap: 4px; margin-bottom: 0;
+  }
+  .tool-filters select {
+    width: 100%; font-size: 13px; padding: 5px 24px 5px 8px; min-height: 0;
+    font-weight: 400; text-transform: none; letter-spacing: normal;
+  }
+
+  .tool-tbl-wrap { overflow-x: auto; }
+  /* Sized against .report-table (app template), which is the same kind of
+     table: a page-level figure grid, not the History mega-row. */
+  .tool-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .tool-tbl th {
+    text-align: left; font-size: 11px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em; padding: 8px 10px;
+    border-bottom: 2px solid var(--border); white-space: nowrap;
+  }
+  .tool-tbl td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .tool-tbl tr:hover td { background: var(--bg); }
+  /* Figures are monospaced everywhere else in the app, which is what lets a
+     column of them line up on the decimal point. */
+  /* Headings keep the nowrap they inherit from `.tool-tbl th` — a heading is
+     what sets its column's floor, and "MARKET / VALUE" stacked over a one-line
+     figure reads as two columns. A FIGURE does not: a money cell is
+     "12,345.67 AUD", whose only break opportunity is the space before the
+     code, so a squeezed column drops the code to a second line and the table
+     still fits its card. Pinning the figure to one line as well is what put a
+     horizontal scrollbar under the Holdings table on a full-width desktop,
+     where there was nothing to scroll TO — the columns simply added up to more
+     than the 868px content column. The number itself contains no break
+     opportunity, so it never splits mid-figure. */
+  .tool-tbl td.num, .tool-tbl th.num { text-align: right; }
+  .tool-tbl td.num { font-family: var(--mono); font-size: 12px; white-space: normal; }
+  .tool-tbl td.mid, .tool-tbl th.mid { text-align: center; }
+  .tool-tbl td.act { width: 1%; padding: 4px 6px; white-space: nowrap; }
+  @media (max-width: 520px) { .tool-tbl td.act { padding-left: 0; padding-right: 0; } }
+  .tool-tbl tr:last-child td { border-bottom: none; }
+  /* What a row is NARROWED to, under its name. */
+  .tool-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .tool-empty {
+    color: var(--text-muted); padding: 12px 14px; font-size: 13px;
+    background: var(--surface); border: 1px dashed var(--border-strong);
+    border-radius: 10px;
+  }
+  /* Validation output and nothing else. Explaining a control in prose beside
+     it is not this class's job — see the copy rule in CLAUDE.md. */
+  .tool-hint {
+    font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5;
+    text-transform: none; letter-spacing: normal;
+  }
+
+  /* A badge saying what KIND of row this is. */
+  .tool-chip {
+    display: inline-block; padding: 1px 6px; border-radius: 999px;
+    background: #d6e4f7; color: #1b3a5c; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.03em; vertical-align: middle; white-space: nowrap;
+  }
+  /* The chip only ever says what HAPPENED, so it wears the informational
+     colour, except "not booked yet", which is the one state still owed. */
+  .tool-chip-wait { background: #fff6e0; color: #6b4e00; }
+
+  .tool-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  /* A tile row with nothing in it yet is not a gap in the card. */
+  .tool-summary:empty { display: none; }
+  /* .metric-card from the Report tab, to the pixel: same fill, same label,
+     same monospaced value. The two sat side by side in the same app reading as
+     two different components. */
+  .tool-tile {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; min-height: 82px;
+  }
+  .tool-tile .lbl {
+    font-size: 10px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;
+  }
+  .tool-tile .val { font-size: 15px; font-weight: 700; font-family: var(--mono); }
+  .tool-tile .val.pos { color: var(--success-ink); }
+  .tool-tile .val.neg { color: var(--danger-ink); }
+
+  /* Row editors inside a modal: one dashed add at the foot, one delete per row. */
+  .tool-add-btn {
+    background: none; border: 1.5px dashed var(--border); border-radius: 10px;
+    color: var(--text-muted); cursor: pointer; font-size: 13px;
+    padding: 9px 16px; width: 100%; margin-bottom: 14px; transition: background 0.12s;
+  }
+  .tool-add-btn:hover { background: var(--bg); color: var(--text); }
+  .tool-del-btn {
+    background: none; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-muted); cursor: pointer; font-size: 14px;
+    padding: 5px 9px; line-height: 1; transition: background 0.12s, color 0.12s;
+  }
+  .tool-del-btn:hover { background: var(--danger); color: #4a1018; border-color: var(--danger); }
+  .tool-del-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .tool-del-btn:disabled:hover { background: none; color: var(--text-muted); border-color: var(--border); }
+
+  /* ── TOOL PAGINATION ── */
+  .tool-pagination {
+    display: flex; flex-direction: column; gap: 8px;
+    padding-top: 12px; border-top: 1px solid var(--border);
+  }
+  .tool-pagination-top {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px;
+  }
+  .tool-page-info { font-size: 12px; color: var(--text-muted); }
+  .tool-per-page-label {
+    font-size: 13px; color: var(--text-muted);
+    display: flex; align-items: center; gap: 4px; white-space: nowrap;
+  }
+  .tool-per-page-label select { padding: 4px 24px 4px 8px; font-size: 13px; width: auto; }
+  .tool-page-btns { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; }
+  .tool-page-num { font-size: 13px; color: var(--text); min-width: 80px; text-align: center; }
+
+  /* ── THE ONE EXPLANATION A CONTROL IS ALLOWED ──
+     Only for what is specific to this app and cannot be read off the control
+     itself. Driven by ui.js against a single fixed #globalTooltip, so it is
+     never clipped by a scrolling table or an overflow:hidden card. Sized to
+     the text it follows; the finger-sized hit area comes back via ::after on
+     coarse pointers, which costs no layout. */
+  .tooltip-icon {
+    position: relative; display: inline-flex;
+    align-items: center; justify-content: center;
+    width: 16px; height: 16px;
+    border: 1px solid var(--border); background: #f8fbff; border-radius: 50%;
+    font-size: 10px; font-weight: 600; line-height: 1;
+    cursor: help; color: var(--text-muted);
+    flex-shrink: 0; vertical-align: middle;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+  .tooltip-icon:hover {
+    border-color: var(--primary); background: #eef5ff; color: var(--primary-dark);
+  }
+  /* Settings puts a tabindex on these so a keyboard can reach the explanation;
+     without a visible ring that is a focus stop nobody can see. */
+  .tooltip-icon:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+  @media (pointer: coarse) {
+    .tooltip-icon::after { content: ""; position: absolute; inset: -7px; }
+  }
+  #globalTooltip {
+    position: fixed; z-index: 99999;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 12px;
+    font-size: 12px; font-weight: 500; color: var(--text); line-height: 1.5;
+    width: 220px; white-space: normal; text-align: left;
+    letter-spacing: 0; text-transform: none;
+    box-shadow: var(--shadow); pointer-events: none;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  #globalTooltip.visible { opacity: 1; }
+  #globalTooltip::after {
+    content: ''; position: absolute; top: 100%;
+    left: var(--arrow-left, 50%); transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color: var(--surface);
+  }
+  #globalTooltip.arrow-below::after {
+    top: auto; bottom: 100%;
+    border-top-color: transparent; border-bottom-color: var(--surface);
+  }
+  /* ── AI TEXT MODE, AND THE AUTO / MANUAL SWITCH ──
+     The "describe it and let the parser fill the form" control: Add Account,
+     Add Side Job and Add Recurring Rule all carry one. Auto swaps the form for
+     a describe-it box and swaps the modal's Add button for AI Fill; the parsed
+     draft lands back on the form, which stays the only thing that ever saves.
+     Two pages hold those modals now (the main app, and the Side Job Tool), so
+     the chrome is defined here instead of copied into each. */
+  textarea.ai-input { height: 80px; resize: none; line-height: 1.5; }
+
+  .assist-tabs {
+    display: inline-flex; flex-wrap: wrap; max-width: 100%;
+    gap: 2px; padding: 3px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .assist-tab {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border: none; border-radius: 7px; background: transparent;
+    font-family: inherit; font-size: 13px; font-weight: 600; color: var(--text-muted);
+    white-space: nowrap; cursor: pointer; transition: all 0.15s;
+  }
+  .assist-tab.active { background: var(--primary-strong); color: #fff; }
+  .assist-tab:hover:not(.active) { color: var(--text); }
+
+  .assist-panel textarea.ai-input { height: 96px; margin-bottom: 0; }
+
+  .assist-status {
+    margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+    background: #eef5ff; color: var(--primary-ink);
+    font-size: 13px; line-height: 1.5;
+  }
+  .assist-status.error { background: var(--danger); color: var(--danger-ink); }
+
+  /* ── SPINNER ──
+     A button that is working says so in place, without changing size. The main
+     app, the Budgeting Tool and the Side Job Tool each kept their own copy of
+     this; a page that wants one now inherits it. */
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2.5px solid rgba(0,0,0,0.12); border-top-color: var(--primary-dark);
+    border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── SVG ICONS (sprite at /app/static/assets/icons.svg) ── */
+  .icon {
+    width: 1.1em;
+    height: 1.1em;
+    display: inline-block;
+    vertical-align: -0.2em;
+    flex-shrink: 0;
+  }
+
+
+  /* ══ SPLIT BILL ═════════════════════════════════════════════════════════
+     Components only this app has. Values are the design system's: 14px
+     --gap, 20px card padding, 10px control radius, dashed empty boxes. */
+
+  /* Hide the page until i18n.js has translated it (boot.js set the class). */
+  html.i18n-wait body { visibility: hidden; }
+
+  /* ── Sign-in pages (landing, login, register, join) ── from the
+     finance-tracker login template, shared here because four pages use it. */
+  body.auth-page {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; min-height: 100vh;
+  }
+  .login-wrap { width: 100%; max-width: 380px; padding: 20px; }
+  .login-back {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+    font-weight: 500; color: var(--text-muted); text-decoration: none; margin-bottom: 12px;
+  }
+  .login-back:hover { color: var(--primary-dark); }
+  .login-card {
+    background: var(--surface); border-radius: 20px;
+    box-shadow: 0 4px 32px rgba(120,160,220,0.18);
+    padding: 32px; border: 1px solid var(--border);
+  }
+  .login-card > * + * { margin-top: var(--gap); }
+  .login-logo { text-align: center; }
+  .login-logo .logo-icon { font-size: 44px; display: block; margin-bottom: 8px; color: var(--primary-dark); }
+  .login-logo h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+  .login-logo p { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+  .login-card .field { margin-bottom: 0; }
+  .login-card .btn { padding: 13px; font-size: 15px; border-radius: 12px; }
+  .login-card > .btn { margin-top: 20px; }
+  .login-error {
+    display: none; background: var(--danger); color: var(--danger-ink);
+    padding: 10px 14px; border-radius: 9px; font-size: 13px; line-height: 1.4;
+  }
+  .login-error.show { display: block; }
+  .login-hint { text-align: center; font-size: 12px; color: var(--text-muted); }
+  .login-hint a { color: var(--primary-dark); text-decoration: none; font-weight: 600; }
+  .remember-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+  .remember-row input { width: 16px; height: 16px; accent-color: var(--primary-dark); }
+  .remember-row label { margin: 0; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13px; }
+  .lang-flags { display: flex; justify-content: center; gap: 10px; }
+  .lang-flag-btn {
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 9px;
+    background: var(--surface); color: var(--text-muted); cursor: pointer;
+    font-size: 12px; font-weight: 600;
+  }
+  .lang-flag-btn.active { border-color: var(--primary-dark); color: var(--text); background: #eef4ff; }
+  .login-footer { text-align: center; font-size: 11px; color: var(--text-muted); padding: 16px 0 12px; }
+  .code-input { letter-spacing: 8px; text-align: center; font-family: var(--mono); font-size: 20px !important; }
+
+  /* A panel that shows or hides as one block, with the card's rhythm inside. */
+  .stack > * { margin-bottom: 0; }
+  .stack > * + * { margin-top: var(--gap); }
+  .stack > .tool-add-btn { margin-bottom: 0; }
+
+  /* A sub-heading inside a card: the label token, not a second title. */
+  .report-sub {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  /* Settings holds one field per row, so it reads narrower (DESIGN-SYSTEM.md
+     allows the Settings pages their own max-width). */
+  .settings-wrap.settings-narrow { max-width: 500px; }
+
+  /* ── Status chips ── */
+  .chip {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+    vertical-align: middle; white-space: nowrap;
+    background: #d6e4f7; color: #1b3a5c;
+  }
+  .chip-open { background: #fff6e0; color: #6b4e00; }
+  .chip-settled { background: var(--success); color: var(--success-ink); }
+  .chip-muted { background: var(--bg-sunken); color: var(--text-muted); }
+
+  .pos { color: var(--success-ink); }
+  .neg { color: var(--danger-ink); }
+  .muted { color: var(--text-muted); }
+  .mono { font-family: var(--mono); }
+  .nowrap { white-space: nowrap; }
+  .row-link { cursor: pointer; }
+  .row-link td:first-child { font-weight: 600; }
+
+  /* A banner inside the column: offline, unverified email, missing rate. */
+  .banner {
+    padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+    background: #eef5ff; color: var(--primary-ink); margin-bottom: 14px;
+  }
+  .banner.warn { background: #fff6e0; color: #6b4e00; }
+  .banner.error { background: var(--danger); color: var(--danger-ink); }
+  .banner .btn { margin-left: 8px; }
+
+  /* ── Member chips: toggle who shares a line ── */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mchip {
+    padding: 5px 11px; min-height: 32px; border-radius: 999px;
+    border: 1.5px solid var(--border-strong); background: var(--surface);
+    color: var(--text-muted); font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .mchip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #1a2a4a; }
+  @media (pointer: coarse) { .mchip { min-height: 40px; } }
+
+  /* ── Bill editor lines (items, adjustments, percents) ── */
+  .lines > * + * { margin-top: var(--gap); }
+  .line {
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+    background: var(--surface);
+  }
+  .line > * + * { margin-top: 6px; }
+  /* A list built from the input above it belongs to that input. */
+  .line-row + .chips { margin-top: 6px; }
+  .line-row { display: flex; gap: 8px; align-items: center; }
+  .line-row input[type=text] { flex: 1 1 auto; min-width: 0; }
+  .line-row .amt { flex: 0 0 130px; text-align: right; font-family: var(--mono); }
+  .line-row select { flex: 0 0 130px; }
+  .pct-row { display: flex; gap: 8px; align-items: center; }
+  .pct-row .who { flex: 1 1 auto; font-weight: 600; font-size: 14px; }
+  .pct-row input { flex: 0 0 110px; text-align: right; font-family: var(--mono); }
+  @media (max-width: 420px) { .line-row .amt, .line-row select { flex-basis: 108px; } }
+
+  /* One line under the editor that says whether the bill adds up. */
+  .reconcile {
+    display: flex; justify-content: space-between; gap: 10px;
+    padding: 10px 12px; border-radius: 10px; font-size: 13px;
+    background: var(--bg); font-family: var(--mono);
+  }
+  .reconcile.bad { background: var(--danger); color: var(--danger-ink); }
+  .reconcile.good { background: var(--success); color: var(--success-ink); }
+
+  /* Live "who pays what" preview in the bill modal. */
+  .preview { border: 1px dashed var(--border-strong); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+  .preview-row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+  .preview-row .mono { font-size: 12px; }
+  .preview-note { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+
+  /* Transfers: "Cal -> Ali  35.00 USD  [Mark paid]". */
+  .transfer {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px;
+  }
+  .transfer:last-child { border-bottom: none; }
+  .transfer .who { flex: 1 1 auto; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .transfer .amt { font-family: var(--mono); font-weight: 700; }
+  .transfer.paid .who, .transfer.paid .amt { color: var(--text-muted); text-decoration: line-through; }
+
+  /* A read-only value to copy (invite link, report text). */
+  .copy-box {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .copy-box input { flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: 13px; }
+  .report-text {
+    width: 100%; min-height: 260px; font-family: var(--mono); font-size: 12px;
+    line-height: 1.5; white-space: pre; resize: vertical;
+  }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-row .btn { flex: 1 1 auto; }
+
+  /* The one photo picker in the bill modal. */
+  .photo-pick {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    border: 1.5px dashed var(--border-strong); border-radius: 12px; padding: 18px;
+    color: var(--text-muted); font-size: 13px; cursor: pointer; text-align: center;
+  }
+  .photo-pick:hover { background: var(--bg); }
+  .photo-thumb { max-width: 100%; max-height: 180px; border-radius: 10px; display: block; margin: 0 auto; }
+
+
+
+/* ══ SPACING RHYTHM ═══════════════════════════════════════════════════════
+   Every card in the app — .card, .tool-card, .settings-card, .entry-card and
+   a modal's body — is padded 20px on all four sides and stacks the blocks
+   inside it --gap apart. The gap is a TOP margin on each block after the
+   first, never a bottom margin under each block, and that one choice is what
+   holds the rhythm together:
+
+     - A block that is display:none carries a margin that draws nothing. A
+       hidden empty-state twin, a hidden chart panel or a pager with one page
+       no longer decides the spacing of the block before it. The dashed
+       "No budget set for this month." box sat hard against the COPY FROM
+       label under it for exactly this reason: setTableEmpty() hides the table
+       wrap, and the wrap's margin went away with it.
+     - Whatever ENDS a card has no margin under it at all, so the card's
+       bottom padding is its bottom gap. A table inside a 20px card used to
+       leave 34px under itself, and every card in the app read bottom-heavy.
+
+   So do not give a block inside a card a margin-bottom — it will be dropped.
+   A block that has to hug the one above it (a description under a title, a
+   hint under a field) takes a SMALLER margin-top instead. */
+.card > *,
+.tool-card > *,
+.settings-card > *,
+.entry-card > *,
+.modal-body > * { margin-bottom: 0; }
+
+.card > * + *,
+.tool-card > * + *,
+.settings-card > * + *,
+.entry-card > * + *,
+.modal-body > * + * { margin-top: var(--gap); }
+
+/* Two fields on one row are ONE block: the gap is measured from the row, not
+   from the fields inside it. */
+.form-row > .field { margin-bottom: 0; }
+
+/* A line that explains the block above it belongs to that block, so it hugs
+   it rather than reading as the next thing down. */
+.card > :is(.tool-hint, .field-msg),
+.tool-card > :is(.tool-hint, .field-msg),
+.settings-card > :is(.tool-hint, .field-msg),
+.entry-card > :is(.tool-hint, .field-msg),
+.modal-body > :is(.tool-hint, .field-msg) {
+  margin-top: 6px;
+}
+
+/* The action that closes a card stands clear of the last field it commits —
+   the same 20px the card is padded by, so the button reads as the end of the
+   card rather than as one more row in the form. */
+.card > .btn,
+.tool-card > .btn,
+.settings-card > .btn,
+.entry-card > .btn { margin-top: 20px; }

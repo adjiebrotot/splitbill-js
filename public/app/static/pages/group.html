@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en" class="i18n-wait">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Split Bill</title>
+<link rel="manifest" href="/app/manifest.json">
+<meta name="theme-color" content="#8bb8f8">
+<link rel="icon" href="/app/static/icons/icon-192.png?v=b9439c9e">
+<link rel="apple-touch-icon" href="/app/static/icons/icon-192.png?v=b9439c9e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/app/static/css/shared.css?v=8463989a">
+<script src="/app/static/js/i18n-all.js?v=619d0a8c"></script>
+<script src="/app/static/js/boot.js?v=4f3053eb" data-page="group" data-auth="1"></script>
+</head>
+<body>
+  <div id="globalTooltip"></div>
+  <main class="main-content">
+    <div class="settings-wrap">
+      <div class="settings-header">
+        <a href="/app" class="btn btn-ghost btn-compact btn-icon" data-i18n-aria="common.back" aria-label="Back"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-arrow-left"></use></svg></a>
+        <h1 id="g-name"></h1>
+        <span id="g-chips"></span>
+      </div>
+      <div class="banner warn" id="offline-banner" hidden></div>
+      <div class="banner error" id="missing-banner" hidden></div>
+
+      <!-- Balances: always visible; the settlement when settled. -->
+      <section class="tool-card" id="card-balances">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-exchange"></use></svg> <span data-i18n="bal.title">Balances</span>
+          <span class="tool-head-actions">
+            <button type="button" class="btn btn-ghost btn-compact" id="btn-report"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-share"></use></svg> <span data-i18n="rpt.button">Report</span></button>
+          </span>
+        </h2>
+        <div class="tool-summary" id="bal-tiles"></div>
+        <div class="tool-tbl-wrap" id="bal-wrap">
+          <table class="tool-tbl">
+            <thead><tr>
+              <th data-i18n="bal.member">Member</th>
+              <th class="num" data-i18n="bal.paid">Paid</th>
+              <th class="num" data-i18n="bal.share">Share</th>
+              <th class="num"><span data-i18n="bal.net">Balance</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="bal.net_tip" data-tip="Plus: gets money back. Minus: owes money.">?</span></th>
+            </tr></thead>
+            <tbody id="bal-body"></tbody>
+          </table>
+        </div>
+        <h3 class="report-sub"><span data-i18n="bal.transfers">Who pays whom</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="bal.transfers_tip" data-tip="The fewest payments that settle everyone.">?</span></h3>
+        <div id="transfers"></div>
+        <div class="btn-row" id="owner-actions"></div>
+      </section>
+
+      <section class="tool-card" id="card-bills">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-receipt"></use></svg> <span data-i18n="bill.title_list">Bills</span>
+          <span class="tool-head-actions"><button type="button" class="btn btn-ghost btn-compact" id="btn-add-bill">+ <span data-i18n="bill.add">Add Bill</span></button></span>
+        </h2>
+        <div class="tool-tbl-wrap" id="bills-wrap">
+          <table class="tool-tbl">
+            <thead><tr>
+              <th data-i18n="bill.col_what">Bill</th>
+              <th class="num" data-i18n="bill.col_total">Total</th>
+              <th class="num" data-i18n="bill.col_mine">My share</th>
+              <th class="num"><span class="sr-only" data-i18n="common.actions">Actions</span></th>
+            </tr></thead>
+            <tbody id="bills-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="tool-card" id="card-payments">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-cash"></use></svg> <span data-i18n="pay.title_list">Payments</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="pay.tip" data-tip="Money already handed back, e.g. cash during the trip.">?</span>
+          <span class="tool-head-actions"><button type="button" class="btn btn-ghost btn-compact" id="btn-add-payment">+ <span data-i18n="pay.add">Record Payment</span></button></span>
+        </h2>
+        <div class="tool-tbl-wrap" id="pay-wrap">
+          <table class="tool-tbl">
+            <thead><tr>
+              <th data-i18n="pay.col_who">From, to</th>
+              <th class="num" data-i18n="pay.col_amount">Amount</th>
+              <th class="num"><span class="sr-only" data-i18n="common.actions">Actions</span></th>
+            </tr></thead>
+            <tbody id="pay-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="tool-card" id="card-members">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-family"></use></svg> <span data-i18n="mem.title">Members</span>
+          <span class="tool-head-actions"><button type="button" class="btn btn-ghost btn-compact" id="btn-add-member">+ <span data-i18n="mem.add">Add Member</span></button></span>
+        </h2>
+        <div class="tool-tbl-wrap">
+          <table class="tool-tbl"><tbody id="mem-body"></tbody></table>
+        </div>
+        <div class="field" id="invite-box" hidden>
+          <label for="invite-link"><span data-i18n="mem.invite">Invite link</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="mem.invite_tip" data-tip="Anyone with this link can join with their own account.">?</span></label>
+          <div class="copy-box">
+            <input type="text" id="invite-link" readonly>
+            <button type="button" class="btn btn-ghost btn-compact btn-icon" id="invite-copy" data-i18n-aria="common.copy" aria-label="Copy"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-copy"></use></svg></button>
+            <button type="button" class="btn btn-ghost btn-compact btn-icon" id="invite-reset" data-i18n-aria="mem.invite_reset" aria-label="New link" hidden><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-refresh"></use></svg></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="tool-card" id="card-rates" hidden>
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-exchange"></use></svg> <span data-i18n="rate.title">Rates</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="rate.tip" data-tip="One rate per currency per day, for the whole group. A bill uses the latest rate on or before its date.">?</span>
+          <span class="tool-head-actions"><button type="button" class="btn btn-ghost btn-compact" id="btn-add-rate">+ <span data-i18n="rate.add">Add Rate</span></button></span>
+        </h2>
+        <div class="tool-tbl-wrap" id="rates-wrap">
+          <table class="tool-tbl">
+            <thead><tr>
+              <th data-i18n="rate.col_from">From</th>
+              <th data-i18n="rate.col_rate">Rate</th>
+              <th class="num"><span class="sr-only" data-i18n="common.actions">Actions</span></th>
+            </tr></thead>
+            <tbody id="rates-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="tool-card" id="card-danger" hidden>
+        <h2 data-i18n="grp.manage">Manage</h2>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost" id="btn-rename" data-i18n="grp.rename">Rename</button>
+          <button type="button" class="btn btn-danger" id="btn-delete-group" data-i18n="grp.delete">Delete Split</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Bill editor -->
+  <div class="modal-overlay" id="modal-bill" role="dialog" aria-modal="true" aria-labelledby="bill-title">
+    <form class="modal-card" id="bill-form" novalidate>
+      <div class="modal-head">
+        <h2 class="modal-title" id="bill-title"></h2>
+        <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-bill')" data-i18n-aria="common.close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="assist-tabs" role="tablist" id="input-tabs">
+          <button type="button" class="assist-tab active" data-input="form" role="tab"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-form"></use></svg> <span data-i18n="input.form">Form</span></button>
+          <button type="button" class="assist-tab" data-input="chat" role="tab"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-chat"></use></svg> <span data-i18n="input.chat">Chat</span></button>
+          <button type="button" class="assist-tab" data-input="photo" role="tab"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-camera"></use></svg> <span data-i18n="input.photo">Photo</span></button>
+        </div>
+        <div id="ai-chat" class="stack" hidden>
+          <div class="field">
+            <label for="ai-text" data-i18n="input.chat_label">Describe the bill</label>
+            <textarea id="ai-text" class="ai-input" maxlength="2000" data-i18n-ph="input.chat_ph" placeholder="Lunch 60 paid by Ali, split evenly with Bob and Cal"></textarea>
+          </div>
+          <button type="button" class="btn btn-primary btn-full" id="ai-chat-go"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-sparkles"></use></svg> <span data-i18n="input.read">Read</span></button>
+        </div>
+        <div id="ai-photo" class="stack" hidden>
+          <label class="photo-pick" for="ai-file">
+            <svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-camera"></use></svg>
+            <span data-i18n="input.photo_pick">Take or choose a receipt photo</span>
+          </label>
+          <input type="file" id="ai-file" accept="image/*" hidden>
+          <img id="ai-thumb" class="photo-thumb" alt="" hidden>
+          <div class="field">
+            <label for="ai-caption" data-i18n="input.caption">Note (optional)</label>
+            <input type="text" id="ai-caption" maxlength="300" data-i18n-ph="input.caption_ph" placeholder="Paid by Ali, drinks for Bob">
+          </div>
+          <button type="button" class="btn btn-primary btn-full" id="ai-photo-go" disabled><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-sparkles"></use></svg> <span data-i18n="input.read">Read</span></button>
+        </div>
+        <div class="assist-status" id="ai-status" hidden></div>
+
+        <div class="field">
+          <label for="bill-desc" data-i18n="bill.desc">What for</label>
+          <input type="text" id="bill-desc" maxlength="120" required>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="bill-date" data-i18n="bill.date">Date</label>
+            <input type="date" id="bill-date" required>
+          </div>
+          <div class="field">
+            <label for="bill-currency" data-i18n="bill.currency">Currency</label>
+            <select id="bill-currency"></select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="bill-payer" data-i18n="bill.payer">Paid by</label>
+          <select id="bill-payer"></select>
+        </div>
+        <div class="assist-tabs" role="tablist" id="mode-tabs">
+          <button type="button" class="assist-tab active" data-mode="items" role="tab" data-i18n="mode.items">By item</button>
+          <button type="button" class="assist-tab" data-mode="even" role="tab" data-i18n="mode.even">Evenly</button>
+          <button type="button" class="assist-tab" data-mode="percent" role="tab" data-i18n="mode.percent">By percent</button>
+        </div>
+
+        <div id="panel-items" class="stack">
+          <div class="lines" id="items"></div>
+          <button type="button" class="tool-add-btn" id="add-item">+ <span data-i18n="bill.add_item">Add Item</span></button>
+          <div class="lines" id="adjs"></div>
+          <div class="btn-row">
+            <button type="button" class="btn btn-ghost btn-compact" data-adj="tax">+ <span data-i18n="adj.tax">Tax</span></button>
+            <button type="button" class="btn btn-ghost btn-compact" data-adj="service">+ <span data-i18n="adj.service">Service</span></button>
+            <button type="button" class="btn btn-ghost btn-compact" data-adj="discount">+ <span data-i18n="adj.discount">Discount</span></button>
+            <button type="button" class="btn btn-ghost btn-compact" data-adj="other">+ <span data-i18n="adj.other">Other</span></button>
+          </div>
+          <div class="field">
+            <label for="bill-stated"><span data-i18n="bill.stated">Receipt total</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="bill.stated_tip" data-tip="Optional. When filled, the bill cannot be saved until the lines add up to it.">?</span></label>
+            <input type="text" id="bill-stated" inputmode="decimal" class="mono">
+          </div>
+        </div>
+
+        <div id="panel-simple" class="stack" hidden>
+          <div class="field">
+            <label for="bill-total" data-i18n="bill.total">Total</label>
+            <input type="text" id="bill-total" inputmode="decimal" class="mono">
+          </div>
+          <div class="field" id="even-who">
+            <label data-i18n="bill.for_whom">For whom</label>
+            <div class="chips" id="even-chips"></div>
+          </div>
+          <div class="lines" id="pcts" hidden></div>
+        </div>
+
+        <div class="reconcile" id="reconcile"></div>
+        <div class="preview" id="preview"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary" id="bill-save" data-i18n="common.save">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Payment -->
+  <div class="modal-overlay" id="modal-pay" role="dialog" aria-modal="true" aria-labelledby="pay-title">
+    <form class="modal-card" id="pay-form" novalidate>
+      <div class="modal-head">
+        <h2 class="modal-title" id="pay-title" data-i18n="pay.add">Record Payment</h2>
+        <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-pay')" data-i18n-aria="common.close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field"><label for="pay-from" data-i18n="pay.from">From</label><select id="pay-from"></select></div>
+          <div class="field"><label for="pay-to" data-i18n="pay.to">To</label><select id="pay-to"></select></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label for="pay-amount" data-i18n="pay.col_amount">Amount</label><input type="text" id="pay-amount" inputmode="decimal" class="mono"></div>
+          <div class="field"><label for="pay-currency" data-i18n="bill.currency">Currency</label><select id="pay-currency"></select></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label for="pay-date" data-i18n="bill.date">Date</label><input type="date" id="pay-date"></div>
+          <div class="field"><label for="pay-note" data-i18n="pay.note">Note</label><input type="text" id="pay-note" maxlength="120"></div>
+        </div>
+      </div>
+      <div class="modal-actions"><button type="submit" class="btn btn-primary" id="pay-save" data-i18n="common.save">Save</button></div>
+    </form>
+  </div>
+
+  <!-- Member -->
+  <div class="modal-overlay" id="modal-mem" role="dialog" aria-modal="true" aria-labelledby="mem-title">
+    <form class="modal-card" id="mem-form" novalidate>
+      <div class="modal-head">
+        <h2 class="modal-title" id="mem-title"></h2>
+        <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-mem')" data-i18n-aria="common.close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="field" id="mem-name-field">
+          <label for="mem-name"><span data-i18n="mem.name">Name</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="new.people_tip" data-tip="Type a name for someone without the app, or @username for an app user.">?</span></label>
+          <input type="text" id="mem-name" maxlength="40" data-i18n-ph="new.person_ph" placeholder="Name or @username">
+        </div>
+        <div class="field" id="mem-link-field" hidden>
+          <label for="mem-link" data-i18n="mem.link_to">Who is this?</label>
+          <select id="mem-link"></select>
+        </div>
+      </div>
+      <div class="modal-actions"><button type="submit" class="btn btn-primary" id="mem-save" data-i18n="common.save">Save</button></div>
+    </form>
+  </div>
+
+  <!-- Rate -->
+  <div class="modal-overlay" id="modal-rate" role="dialog" aria-modal="true" aria-labelledby="rate-title">
+    <form class="modal-card" id="rate-form" novalidate>
+      <div class="modal-head">
+        <h2 class="modal-title" id="rate-title" data-i18n="rate.add">Add Rate</h2>
+        <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-rate')" data-i18n-aria="common.close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field"><label for="rate-currency" data-i18n="bill.currency">Currency</label><select id="rate-currency"></select></div>
+          <div class="field"><label for="rate-date" data-i18n="rate.col_from">From</label><input type="date" id="rate-date"></div>
+        </div>
+        <div class="remember-row">
+          <input type="checkbox" id="rate-start">
+          <label for="rate-start" data-i18n="rate.from_start">From the start</label>
+        </div>
+        <div class="field">
+          <label for="rate-value" id="rate-label"></label>
+          <div class="copy-box">
+            <input type="text" id="rate-value" inputmode="decimal" class="mono">
+            <button type="button" class="btn btn-ghost btn-compact btn-icon" id="rate-flip" data-i18n-aria="rate.flip" aria-label="Flip"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-exchange"></use></svg></button>
+            <button type="button" class="btn btn-ghost btn-compact" id="rate-auto" data-i18n="rate.auto">Auto</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions"><button type="submit" class="btn btn-primary" id="rate-save" data-i18n="common.save">Save</button></div>
+    </form>
+  </div>
+
+  <!-- Report -->
+  <div class="modal-overlay" id="modal-report" role="dialog" aria-modal="true" aria-labelledby="report-title">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 class="modal-title" id="report-title" data-i18n="rpt.button">Report</h2>
+        <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-report')" data-i18n-aria="common.close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="assist-tabs" role="tablist" id="report-tabs">
+          <button type="button" class="assist-tab active" data-rtype="group" role="tab" data-i18n="rpt.group">Group</button>
+          <button type="button" class="assist-tab" data-rtype="member" role="tab" data-i18n="rpt.individual">Individual</button>
+        </div>
+        <div class="field" id="report-member-field" hidden>
+          <label for="report-member" data-i18n="bal.member">Member</label>
+          <select id="report-member"></select>
+        </div>
+        <textarea id="report-text" class="report-text" readonly></textarea>
+        <div class="btn-row">
+          <button type="button" class="btn btn-secondary" id="report-copy"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-copy"></use></svg> <span data-i18n="common.copy">Copy</span></button>
+          <button type="button" class="btn btn-secondary" id="report-png"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-download"></use></svg> PNG</button>
+          <button type="button" class="btn btn-secondary" id="report-pdf"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-download"></use></svg> PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app/static/js/engine.js?v=f52c3ca1"></script>
+  <script src="/app/static/js/ui.js?v=b30fcd5a"></script>
+  <script src="/app/static/js/i18n.js?v=3c7c0ae8"></script>
+  <script src="/app/static/js/topbar.js?v=87d85aba"></script>
+  <script src="/app/static/js/currency.js?v=7e4d6b4b"></script>
+  <script src="/app/static/js/group.js?v=bddb48f7"></script>
+  <script src="/app/static/js/bill.js?v=7cf7d1ab"></script>
+</body>
+</html>
