@@ -8,6 +8,24 @@
 import { executeScript, fetchall, withConn } from "../db";
 import { MIGRATIONS } from "../migrations";
 
+/** Raised when one migration fails; the runner stops there, nothing of it kept. */
+export class MigrationError extends Error {
+  constructor(readonly migration: string, readonly cause: unknown) {
+    super(`migration ${migration} failed: ${(cause as Error)?.message ?? String(cause)}`);
+    this.name = "MigrationError";
+  }
+}
+
+/** Any fixed key: serialises runners, so two clicks at once never race. */
+const LOCK_KEY = 7_311_742_001;
+
+/**
+ * Safe to call any number of times, also concurrently. Each migration runs
+ * under a transaction-scoped advisory lock and re-checks its bookkeeping row
+ * inside that lock, so a second runner waits and then skips it. The files
+ * themselves are idempotent too (tests/unit/migrations.test.ts), so a schema
+ * that exists without its bookkeeping rows is adopted rather than refused.
+ */
 export async function runMigrations(): Promise<string[]> {
   await executeScript(
     "CREATE TABLE IF NOT EXISTS schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
@@ -16,11 +34,19 @@ export async function runMigrations(): Promise<string[]> {
   const applied: string[] = [];
   for (const name of Object.keys(MIGRATIONS).sort()) {
     if (done.has(name)) continue;
-    await withConn(async (cur) => {
-      await executeScript(MIGRATIONS[name]);
-      await cur.execute("INSERT INTO schema_migrations (filename) VALUES ($1)", [name]);
-    });
-    applied.push(name);
+    try {
+      const ran = await withConn(async (cur) => {
+        await cur.execute("SELECT pg_advisory_xact_lock($1)", [LOCK_KEY]);
+        await cur.execute("SELECT 1 FROM schema_migrations WHERE filename = $1", [name]);
+        if (cur.fetchone()) return false;
+        await executeScript(MIGRATIONS[name]);
+        await cur.execute("INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING", [name]);
+        return true;
+      });
+      if (ran) applied.push(name);
+    } catch (e) {
+      throw new MigrationError(name, e);
+    }
   }
   return applied;
 }

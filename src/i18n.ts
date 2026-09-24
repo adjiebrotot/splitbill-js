@@ -491,6 +491,10 @@ export const STRINGS: Record<string, Entry> = {
     en: "Nobody can take over these splits: {groups}. Delete refused.",
     id: "Tidak ada yang bisa mengambil alih patungan ini: {groups}. Penghapusan ditolak.",
   },
+  "err.migration_failed": {
+    en: "Migration {name} failed, nothing of it was saved: {detail}",
+    id: "Migrasi {name} gagal, tidak ada yang tersimpan: {detail}",
+  },
   "err.admin_no_base_url": { en: "Set PUBLIC_BASE_URL on the server first.", id: "Atur PUBLIC_BASE_URL di server dulu." },
   "tg.admin_pw_reset": {
     en: "An admin reset your Split Bill password.\nTemporary password: <code>{password}</code>\nSign in, then change it in Settings.",

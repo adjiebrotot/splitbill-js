@@ -19,7 +19,7 @@ import { cleanText, safeTimezone, DEFAULT_TZ } from "../utils";
 import { t } from "../i18n";
 import * as A from "./actions";
 import { USERNAME_RE } from "./user_service";
-import { migrationStatus, runMigrations } from "./migrate";
+import { MigrationError, migrationStatus, runMigrations } from "./migrate";
 import { loadGroups } from "./repo";
 import { compute } from "./ledger";
 
@@ -334,7 +334,14 @@ export async function systemStatus() {
 }
 
 export async function applyMigrations() {
-  const applied = await runMigrations();
+  const applied = await runMigrations().catch((e) => {
+    // Admin-only screen: show Postgres's own message so the cause is visible.
+    if (e instanceof MigrationError) {
+      console.error("[migrate]", e.cause);
+      fail("migration_failed", { name: e.migration, detail: String((e.cause as Error)?.message ?? e.cause) }, 500);
+    }
+    throw e;
+  });
   return { applied, migrations: await migrationStatus() };
 }
 

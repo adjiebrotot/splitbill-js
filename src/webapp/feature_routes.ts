@@ -74,7 +74,14 @@ addRoutes({
     const secret = process.env.SETUP_SECRET;
     const auth = req.headers.get("authorization") || "";
     if (!secret || auth !== `Bearer ${secret}`) return json(err("forbidden", {}, 403), 403);
-    const { runMigrations } = await import("../services/migrate");
-    return json({ ok: true, data: { applied: await runMigrations() } });
+    const { MigrationError, migrationStatus, runMigrations } = await import("../services/migrate");
+    try {
+      return json({ ok: true, data: { applied: await runMigrations(), migrations: await migrationStatus() } });
+    } catch (e) {
+      if (!(e instanceof MigrationError)) throw e;
+      console.error("[migrate]", e.cause);
+      const detail = String((e.cause as Error)?.message ?? e.cause);
+      return json({ ok: false, code: "migration_failed", params: { name: e.migration, detail } }, 500);
+    }
   },
 });
