@@ -1180,6 +1180,9 @@
   .photo-pick:hover { background: var(--bg); }
   .photo-thumb { max-width: 100%; max-height: 180px; border-radius: 10px; display: block; margin: 0 auto; }
 
+  /* ── Admin console (/admin): a database cell holds anything, one line of it. ── */
+  .tool-tbl td.clip { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 
 
 /* ══ SPACING RHYTHM ═══════════════════════════════════════════════════════

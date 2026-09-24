@@ -24,3 +24,15 @@ export async function runMigrations(): Promise<string[]> {
   }
   return applied;
 }
+
+/** Every known migration and when it was applied (null = pending). */
+export async function migrationStatus(): Promise<Array<{ name: string; applied_at: string | null }>> {
+  const exists = await fetchall("SELECT to_regclass('schema_migrations') IS NOT NULL");
+  const applied = new Map<string, string>();
+  if (exists[0]?.[0] === true || exists[0]?.[0] === "t") {
+    for (const r of await fetchall("SELECT filename, applied_at FROM schema_migrations")) {
+      applied.set(String(r[0]), new Date(r[1] as string).toISOString());
+    }
+  }
+  return Object.keys(MIGRATIONS).sort().map((name) => ({ name, applied_at: applied.get(name) ?? null }));
+}

@@ -35,6 +35,8 @@ const nextConfig = {
         { source: "/app/settings", destination: "/app/static/pages/settings.html" },
         { source: "/app/g/:id([A-Za-z0-9]{4,16})", destination: "/app/static/pages/group.html" },
         { source: "/app/join/:code([A-Za-z0-9]{4,32})", destination: "/app/static/pages/join.html" },
+        // Admin console. English only; data comes from /app/api/admin/*, which checks ADMIN_PASSWORD's session.
+        { source: "/admin", destination: "/app/static/pages/admin.html" },
       ],
     };
   },

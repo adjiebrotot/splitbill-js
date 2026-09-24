@@ -37,6 +37,8 @@
   }
 
   var lang = cookie('sb_lang');
+  // The admin console is English only (its labels are not i18n keys).
+  if (PAGE === 'admin') lang = 'en';
   if (lang !== 'en' && lang !== 'id') {
     lang = /^id\b/i.test(navigator.language || '') ? 'id' : 'en';
   }

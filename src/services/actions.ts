@@ -727,6 +727,58 @@ export function groupToday(tz: string): string {
   return localDate(tz);
 }
 
+// ── admin: ownership handover before an account is deleted ──────────────────
+
+/**
+ * The member who takes over each group `userId` owns: the linked, active
+ * member with the lowest position other than `userId`. `to` is null when the
+ * group has nobody to hand over to (deleting the account is then refused).
+ * Soft-deleted groups count too: their owner row still points at the user.
+ */
+export async function ownershipHandover(userId: string) {
+  const rows = await fetchall(
+    `SELECT g.group_id, g.name, g.deleted_at IS NOT NULL,
+            (SELECT m.member_id::text FROM members m
+              WHERE m.group_id = g.group_id AND m.active AND m.user_id IS NOT NULL AND m.user_id <> $1
+              ORDER BY m.position LIMIT 1),
+            (SELECT m.user_id::text FROM members m
+              WHERE m.group_id = g.group_id AND m.active AND m.user_id IS NOT NULL AND m.user_id <> $1
+              ORDER BY m.position LIMIT 1),
+            (SELECT m.display_name FROM members m
+              WHERE m.group_id = g.group_id AND m.active AND m.user_id IS NOT NULL AND m.user_id <> $1
+              ORDER BY m.position LIMIT 1)
+       FROM groups g WHERE g.owner_user_id = $1 ORDER BY g.created_at`,
+    [userId],
+  );
+  return rows.map((r) => ({
+    group_id: String(r[0]),
+    name: String(r[1]),
+    deleted: r[2] === true || r[2] === "t",
+    to: r[4] === null ? null : { member_id: String(r[3]), user_id: String(r[4]), name: String(r[5]) },
+  }));
+}
+
+/**
+ * Admin only (no member acts): move ownership of every group `userId` owns to
+ * its handover member. Same gate as write(): lock, log, bump revision,
+ * re-verify the books. Runs inside the caller's atomic() so the account
+ * delete and the handovers commit together.
+ */
+export async function adminHandOverGroups(userId: string) {
+  const plan = await ownershipHandover(userId);
+  const blocked = plan.filter((g) => !g.to);
+  if (blocked.length) fail("admin_delete_blocked", { groups: blocked.map((g) => g.name).join(", ") }, 409);
+  for (const g of plan) {
+    const r = await fetchone("SELECT owner_user_id::text FROM groups WHERE group_id = $1 FOR UPDATE", [g.group_id]);
+    if (!r || String(r[0]) !== userId) continue;
+    await execute("UPDATE groups SET owner_user_id = $1 WHERE group_id = $2", [g.to!.user_id, g.group_id]);
+    await _event(g.group_id, null, "admin_transfer_owner", "group", g.group_id, { from_user: userId, to_user: g.to!.user_id, to_member: g.to!.member_id });
+    await execute("UPDATE groups SET revision = revision + 1 WHERE group_id = $1", [g.group_id]);
+    if (!g.deleted) await _verify(g.group_id);
+  }
+  return plan;
+}
+
 /** Thrown by the web layer when a route needs a signed-in user. */
 export class __AuthError extends Error {
   constructor() {
