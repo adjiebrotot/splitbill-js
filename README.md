@@ -40,6 +40,16 @@ Set the env vars from `.env.example`, deploy, then apply migrations once per rel
 curl -X POST -H "Authorization: Bearer $SETUP_SECRET" https://<host>/app/api/admin/migrate
 ```
 
+or from the admin console (below), System → Apply Pending.
+
+### Admin console
+
+`https://<host>/admin`, signed in with `ADMIN_PASSWORD` (a separate long secret; unset = console off). English only.
+
+- **Users**: search, add (password generated and shown once if left empty), edit profile fields, reset password (shown once, also sent to the user's Telegram when linked), unlink Telegram, delete. Delete keeps the person's member rows as plain names (no amount changes) and hands each split they own to its next linked, active member; it is refused when a split has nobody to take over.
+- **Database**: every table, read-only, paged. Password hashes, email codes, Telegram link codes and invite codes show as `(hidden)`.
+- **System**: migrations (status + apply), books check over every split, daily cleanup, Telegram webhook registration, which env vars are set (never their values).
+
 ### Telegram
 
 1. Create a bot with @BotFather; set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` and `PUBLIC_BASE_URL`.

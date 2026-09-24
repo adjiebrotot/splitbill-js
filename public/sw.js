@@ -7,12 +7,12 @@
  *   page loads      network first; offline, the page's cached shell, which
  *                   then renders its last boot payload from localStorage.
  */
-const CACHE = 'sb-4bc9d36d';
+const CACHE = 'sb-a6f2f7c3';
 const STATIC = [
-  '/app/static/css/shared.css?v=88b972d3',
+  '/app/static/css/shared.css?v=90f2868c',
   '/app/static/assets/icons.svg?v=17f4531f',
-  '/app/static/js/i18n-all.js?v=a969d22f',
-  '/app/static/js/boot.js?v=4f3053eb',
+  '/app/static/js/i18n-all.js?v=933fa0c1',
+  '/app/static/js/boot.js?v=466484cf',
   '/app/static/js/engine.js?v=f52c3ca1',
   '/app/static/js/ui.js?v=b30fcd5a',
   '/app/static/js/i18n.js?v=3c7c0ae8',
@@ -24,14 +24,16 @@ const STATIC = [
   '/app/static/js/settings.js?v=445072ee',
   '/app/static/js/join.js?v=20af1930',
   '/app/static/js/auth.js?v=2cde165a',
+  '/app/static/js/admin.js?v=30172910',
   '/app/static/icons/icon-192.png?v=34543553',
-  '/app/static/pages/landing.html?v=7e516151',
-  '/app/static/pages/login.html?v=49a27c35',
-  '/app/static/pages/register.html?v=cefb3da2',
-  '/app/static/pages/home.html?v=83446332',
-  '/app/static/pages/group.html?v=e7854e2e',
-  '/app/static/pages/join.html?v=109733e1',
-  '/app/static/pages/settings.html?v=60e3b5aa',
+  '/app/static/pages/landing.html?v=f2b0ff87',
+  '/app/static/pages/login.html?v=814e3d16',
+  '/app/static/pages/register.html?v=f8a56c97',
+  '/app/static/pages/home.html?v=786f09be',
+  '/app/static/pages/group.html?v=404fb746',
+  '/app/static/pages/join.html?v=41960f32',
+  '/app/static/pages/settings.html?v=a67545f7',
+  '/app/static/pages/admin.html?v=e77c1057',
 ];
 
 /* Which shell a pretty URL is served from (mirrors next.config.mjs rewrites). */
@@ -44,6 +46,7 @@ function shellFor(pathname) {
   if (p === '/app/settings') return '/app/static/pages/settings.html';
   if (p.indexOf('/app/g/') === 0) return '/app/static/pages/group.html';
   if (p.indexOf('/app/join/') === 0) return '/app/static/pages/join.html';
+  if (p === '/admin') return '/app/static/pages/admin.html';
   return null;
 }
 

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Split Bill Admin</title>
+<meta name="theme-color" content="#8bb8f8">
+<link rel="icon" href="/app/static/icons/icon-192.png?v=34543553">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/app/static/css/shared.css?v=90f2868c">
+<script src="/app/static/js/i18n-all.js?v=933fa0c1"></script>
+<script src="/app/static/js/boot.js?v=466484cf" data-page="admin"></script>
+</head>
+<body>
+  <div id="globalTooltip"></div>
+  <!-- English only, by decision: the console is for the operator, not members. -->
+  <div class="top-bar">
+    <a class="logo" href="/admin"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-lock"></use></svg> <span>Split Bill Admin</span></a>
+    <nav class="top-nav" id="admin-nav" hidden>
+      <a href="#users" data-tab="users"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-family"></use></svg> Users</a>
+      <a href="#db" data-tab="db"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-book"></use></svg> Database</a>
+      <a href="#system" data-tab="system"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-gear"></use></svg> System</a>
+    </nav>
+    <div class="top-bar-right">
+      <button type="button" class="btn btn-ghost btn-compact" id="admin-signout" hidden>Sign out</button>
+    </div>
+  </div>
+
+  <main class="main-content">
+    <!-- Sign in -->
+    <div class="settings-wrap settings-narrow" id="view-login" hidden>
+      <div class="settings-header"><h1>Admin</h1></div>
+      <form class="settings-card" id="login-form" novalidate>
+        <h2>Sign in</h2>
+        <div class="banner error" id="login-error" role="alert" hidden></div>
+        <div class="field">
+          <label for="admin-password">Admin password</label>
+          <input type="password" id="admin-password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary" id="login-btn">Sign In</button>
+      </form>
+    </div>
+
+    <!-- Users -->
+    <div class="settings-wrap" id="view-users" hidden>
+      <div class="settings-header"><h1>Users</h1></div>
+      <div class="tool-scope">
+        <label for="user-q">Search</label>
+        <input type="text" id="user-q" maxlength="100" inputmode="search" autocomplete="off" placeholder="Username, name, email or id">
+      </div>
+      <section class="tool-card">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-family"></use></svg> <span id="users-count">Users</span>
+          <span class="tool-head-actions"><button type="button" class="btn btn-ghost btn-compact" id="btn-add-user">+ Add User</button></span>
+        </h2>
+        <div class="tool-tbl-wrap" id="users-wrap">
+          <table class="tool-tbl">
+            <thead><tr>
+              <th>User</th>
+              <th>Email</th>
+              <th class="mid">Telegram</th>
+              <th class="num">Splits</th>
+              <th>Joined</th>
+              <th class="num" aria-label="Actions"></th>
+            </tr></thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+        <div class="tool-pagination" id="users-pager" hidden></div>
+      </section>
+    </div>
+
+    <!-- Database -->
+    <div class="settings-wrap" id="view-db" hidden>
+      <div class="settings-header"><h1>Database</h1></div>
+      <div class="tool-scope">
+        <label for="db-table">Table</label>
+        <select id="db-table"><option value="">All tables</option></select>
+      </div>
+      <section class="tool-card" id="db-index-card">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-book"></use></svg> Tables <span class="tooltip-icon" tabindex="0" data-tip="Read-only. Password hashes, email codes, Telegram link codes and invite codes show as (hidden).">?</span></h2>
+        <div class="tool-tbl-wrap">
+          <table class="tool-tbl">
+            <thead><tr><th>Table</th><th class="num">Rows</th></tr></thead>
+            <tbody id="db-index-body"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="tool-card" id="db-rows-card" hidden>
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-list"></use></svg> <span id="db-rows-title"></span>
+          <span class="tool-head-actions"><button type="button" class="btn btn-ghost btn-compact" id="db-refresh"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-refresh"></use></svg> Refresh</button></span>
+        </h2>
+        <div class="tool-tbl-wrap" id="db-rows-wrap">
+          <table class="tool-tbl">
+            <thead id="db-rows-head"></thead>
+            <tbody id="db-rows-body"></tbody>
+          </table>
+        </div>
+        <div class="tool-pagination" id="db-pager" hidden></div>
+      </section>
+    </div>
+
+    <!-- System -->
+    <div class="settings-wrap" id="view-system" hidden>
+      <div class="settings-header"><h1>System</h1></div>
+      <section class="tool-card">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-upload"></use></svg> Database Migrations
+          <span class="tool-head-actions"><button type="button" class="btn btn-primary btn-compact" id="btn-migrate">Apply Pending</button></span>
+        </h2>
+        <div class="tool-tbl-wrap">
+          <table class="tool-tbl">
+            <thead><tr><th>Migration</th><th>Applied</th></tr></thead>
+            <tbody id="mig-body"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="tool-card">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-gear"></use></svg> Maintenance</h2>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost" id="btn-integrity">Check Books</button>
+          <button type="button" class="btn btn-ghost" id="btn-cleanup">Run Daily Cleanup</button>
+          <button type="button" class="btn btn-ghost" id="btn-telegram">Register Telegram Webhook</button>
+        </div>
+        <textarea class="report-text" id="sys-output" readonly hidden aria-label="Result"></textarea>
+      </section>
+      <section class="tool-card">
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-lock"></use></svg> Environment <span class="tooltip-icon" tabindex="0" data-tip="Whether each variable is set on the server. Values are never shown.">?</span></h2>
+        <div class="tool-tbl-wrap">
+          <table class="tool-tbl">
+            <thead><tr><th>Variable</th><th class="mid">Set</th></tr></thead>
+            <tbody id="env-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <nav class="bottom-tabs" id="admin-tabs" hidden>
+    <div class="tabs-row">
+      <a class="tab-btn" href="#users" data-tab="users"><svg class="icon tab-icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-family"></use></svg> Users</a>
+      <a class="tab-btn" href="#db" data-tab="db"><svg class="icon tab-icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-book"></use></svg> Database</a>
+      <a class="tab-btn" href="#system" data-tab="system"><svg class="icon tab-icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-gear"></use></svg> System</a>
+    </div>
+  </nav>
+
+  <!-- Add / edit user -->
+  <div class="modal-overlay" id="modal-user" role="dialog" aria-modal="true" aria-labelledby="user-title">
+    <form class="modal-card" id="user-form" novalidate>
+      <div class="modal-head">
+        <h2 class="modal-title" id="user-title">Add User</h2>
+        <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-user')" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="field" id="u-username-field">
+          <label for="u-username">Username</label>
+          <input type="text" id="u-username" maxlength="32" autocapitalize="none" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="u-name">Display name</label>
+          <input type="text" id="u-name" maxlength="40">
+        </div>
+        <div class="field">
+          <label for="u-email">Email</label>
+          <input type="email" id="u-email" maxlength="200" autocomplete="off">
+        </div>
+        <div class="remember-row">
+          <input type="checkbox" id="u-verified">
+          <label for="u-verified">Email verified</label>
+        </div>
+        <div class="field" id="u-password-field">
+          <label for="u-password">Password <span class="tooltip-icon" tabindex="0" data-tip="Leave empty to generate a temporary one, shown once.">?</span></label>
+          <input type="text" id="u-password" maxlength="200" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="u-lang">Language</label>
+            <select id="u-lang"><option value="en">English</option><option value="id">Bahasa Indonesia</option></select>
+          </div>
+          <div class="field">
+            <label for="u-currency">Default currency</label>
+            <select id="u-currency"></select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="u-tz">Time zone</label>
+          <input type="text" id="u-tz" maxlength="64" list="tz-list">
+          <datalist id="tz-list"></datalist>
+        </div>
+        <div class="field" id="u-tg-field" hidden>
+          <label>Telegram</label>
+          <div class="copy-box">
+            <input type="text" id="u-tg" readonly>
+            <button type="button" class="btn btn-ghost btn-compact" id="u-tg-unlink">Unlink</button>
+          </div>
+        </div>
+        <h3 class="report-sub" id="u-groups-title" hidden>Splits</h3>
+        <div class="tool-tbl-wrap" id="u-groups" hidden>
+          <table class="tool-tbl">
+            <thead><tr><th>Split</th><th>As</th><th class="mid">Status</th></tr></thead>
+            <tbody id="u-groups-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-actions"><button type="submit" class="btn btn-primary" id="user-save">Save</button></div>
+    </form>
+  </div>
+
+  <!-- A password to hand over, shown once -->
+  <div class="modal-overlay" id="modal-pw" role="dialog" aria-modal="true" aria-labelledby="pw-title">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 class="modal-title" id="pw-title">Temporary Password</h2>
+        <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-pw')" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <p class="card-desc" id="pw-desc"></p>
+        <div class="copy-box">
+          <input type="text" id="pw-value" readonly aria-label="Temporary password">
+          <button type="button" class="btn btn-ghost btn-compact btn-icon" id="pw-copy" aria-label="Copy"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-copy"></use></svg></button>
+        </div>
+        <div class="banner" id="pw-tg" hidden></div>
+      </div>
+      <div class="modal-actions"><button type="button" class="btn btn-primary" onclick="closeModal('modal-pw')">Done</button></div>
+    </div>
+  </div>
+
+  <!-- Delete user: what happens, then type the username -->
+  <div class="modal-overlay" id="modal-del" role="dialog" aria-modal="true" aria-labelledby="del-title">
+    <form class="modal-card" id="del-form" novalidate>
+      <div class="modal-head">
+        <h2 class="modal-title" id="del-title">Delete User</h2>
+        <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-del')" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <p class="card-desc" id="del-desc"></p>
+        <div class="banner error" id="del-blocked" hidden></div>
+        <div class="tool-tbl-wrap" id="del-plan-wrap" hidden>
+          <table class="tool-tbl">
+            <thead><tr><th>Split they own</th><th>New owner</th></tr></thead>
+            <tbody id="del-plan-body"></tbody>
+          </table>
+        </div>
+        <div class="field">
+          <label for="del-confirm">Type the username to confirm</label>
+          <input type="text" id="del-confirm" autocapitalize="none" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-actions"><button type="submit" class="btn btn-primary" id="del-go">Continue</button></div>
+    </form>
+  </div>
+
+  <script src="/app/static/js/engine.js?v=f52c3ca1"></script>
+  <script src="/app/static/js/ui.js?v=b30fcd5a"></script>
+  <script src="/app/static/js/i18n.js?v=3c7c0ae8"></script>
+  <script src="/app/static/js/currency.js?v=7e4d6b4b"></script>
+  <script src="/app/static/js/admin.js?v=30172910"></script>
+</body>
+</html>

@@ -480,6 +480,22 @@ export const STRINGS: Record<string, Entry> = {
   "err.google_failed": { en: "Google sign-in did not complete. Try again.", id: "Masuk dengan Google gagal. Coba lagi." },
   "err.google_unavailable": { en: "Google sign-in is not set up here.", id: "Masuk dengan Google belum diatur di sini." },
   "err.report_invalid": { en: "Pick a report.", id: "Pilih laporan." },
+
+  // ── admin console (the page itself is English only; errors reach it through err.*) ──
+  "err.admin_unconfigured": { en: "Admin is off. Set ADMIN_PASSWORD on the server.", id: "Admin nonaktif. Atur ADMIN_PASSWORD di server." },
+  "err.admin_login_required": { en: "Admin sign-in needed.", id: "Perlu masuk sebagai admin." },
+  "err.admin_login_failed": { en: "Wrong admin password.", id: "Kata sandi admin salah." },
+  "err.admin_user_missing": { en: "That user no longer exists.", id: "Pengguna itu sudah tidak ada." },
+  "err.admin_confirm_mismatch": { en: "Type the username exactly to confirm.", id: "Ketik nama pengguna persis untuk konfirmasi." },
+  "err.admin_delete_blocked": {
+    en: "Nobody can take over these splits: {groups}. Delete refused.",
+    id: "Tidak ada yang bisa mengambil alih patungan ini: {groups}. Penghapusan ditolak.",
+  },
+  "err.admin_no_base_url": { en: "Set PUBLIC_BASE_URL on the server first.", id: "Atur PUBLIC_BASE_URL di server dulu." },
+  "tg.admin_pw_reset": {
+    en: "An admin reset your Split Bill password.\nTemporary password: <code>{password}</code>\nSign in, then change it in Settings.",
+    id: "Admin mengatur ulang kata sandi Split Bill kamu.\nKata sandi sementara: <code>{password}</code>\nMasuk, lalu ganti di Pengaturan.",
+  },
 };
 
 /** Translate, with {name} placeholders filled from `params`. */

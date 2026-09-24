@@ -37,6 +37,10 @@ Chat and receipt photos go through `src/services/ai_parse.ts`. The models (OpenR
 
 `src/telegram/bot.ts` parses updates and calls `actions.ts`, nothing else. Group chats run with privacy mode ON: only `/cmd@bot`, bare `/cmd` when the bot spoke last, and replies to the bot arrive, so every group flow is a command or a ForceReply. Keep `allowed_updates` = message, callback_query, my_chat_member (`telegram/api.ts`). Test with `tests/unit/db_telegram.test.ts` (Bot API and AI mocked).
 
+## Admin console: `/admin`
+
+Static page `admin.html` + `admin.js`, JSON under `/app/api/admin/*` (`src/webapp/admin_routes.ts`), sign-in by `ADMIN_PASSWORD` (`admin_auth.ts`, own cookie, not a member session). Routes call only `src/services/admin_actions.ts`; anything touching a group's books goes through `actions.ts` (`adminHandOverGroups` uses the same lock / log / revision / verify gate). DB viewer is read-only; add a new secret column to `MASKED`. The page is **English only** by owner decision: plain labels, no i18n keys; error codes still need `err.<code>` in both languages (test).
+
 ## Node runtime
 
 Route handlers that touch `pg`, `@node-rs/bcrypt`, `@napi-rs/canvas` or `pdf-lib` export `runtime = "nodejs"`. Native packages stay in `serverExternalPackages` (`next.config.mjs`).
@@ -71,7 +75,7 @@ Escape with `esc()` (ui.js) first. Same for any value in an attribute.
 
 ## Secrets
 
-`LLM_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`, `SETUP_SECRET` live in `.env.local` (gitignored) and Vercel env. Never commit them.
+`LLM_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`, `SETUP_SECRET`, `ADMIN_PASSWORD` live in `.env.local` (gitignored) and Vercel env. Never commit them.
 
 ## Tests
 

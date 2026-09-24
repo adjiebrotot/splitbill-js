@@ -1,5 +1,6 @@
 import { handleApi } from "@/webapp/api_routes";
 import "@/webapp/feature_routes";
+import "@/webapp/admin_routes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
