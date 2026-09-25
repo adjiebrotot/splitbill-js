@@ -10,7 +10,7 @@
  */
 
 import { fail } from "./errors";
-import { pow10, frac, type Frac } from "./rational";
+import { pow10, frac, roundHalfEven, type Frac } from "./rational";
 
 /** Largest amount accepted anywhere, in minor units. */
 export const MAX_MINOR = 10n ** 15n;
@@ -187,4 +187,44 @@ export function parseLocaleRate(input: unknown, lang = "en"): Rate {
   }
   s = intPart + (fracPart ? "." + fracPart : "");
   return parseRate(s);
+}
+
+/** num/den (>= 1) as decimal text with `dp` decimals, half-even, trailing zeros trimmed. */
+function _fixed(num: bigint, den: bigint, dp: number): string {
+  const n = roundHalfEven(num * pow10(dp), den).toString().padStart(dp + 1, "0");
+  const i = n.slice(0, n.length - dp);
+  const f = dp ? n.slice(n.length - dp).replace(/0+$/, "") : "";
+  return i + (f ? "." + f : "");
+}
+
+/** Digits before the decimal point of num/den (>= 1). */
+function _intDigits(num: bigint, den: bigint): number {
+  return (num / den).toString().length;
+}
+
+/**
+ * The stored "big side first" form: 1 AUD = 12,655.79 IDR, never
+ * 1 IDR = 0.0000790152 AUD, whose tail the 12-decimal column would cut. A rate
+ * under 1 is kept as its reciprocal (10 significant digits) with `inverted`
+ * flipped. A reciprocal past MAX_RATE stays as given.
+ */
+export function bigSideRate(r: Rate, inverted: boolean): { rate: Rate; inverted: boolean } {
+  const { num, den } = r.value;
+  if (num >= den || den > MAX_RATE * num) return { rate: r, inverted };
+  const dp = Math.max(0, 10 - _intDigits(den, num));
+  return { rate: parseRate(_fixed(den, num, dp)), inverted: !inverted };
+}
+
+/**
+ * A rate as people read it: big side first, then the decimals that mean
+ * something (21624.09938 -> "21624", 12.151245533 -> "12.15"). Display only;
+ * every conversion uses the stored rate.
+ */
+export function displayRate(text: string, inverted: boolean): { text: string; inverted: boolean } {
+  let { num, den } = parseRate(text).value;
+  if (num < den) {
+    [num, den] = [den, num];
+    inverted = !inverted;
+  }
+  return { text: _fixed(num, den, num >= 1000n * den ? 0 : 2), inverted };
 }

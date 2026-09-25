@@ -144,6 +144,7 @@ export const STRINGS: Record<string, Entry> = {
   // ── balances ──
   "bal.title": { en: "Balances", id: "Saldo" },
   "bal.member": { en: "Member", id: "Anggota" },
+  "bal.ccy": { en: "CCY", id: "Mata Uang" },
   "bal.paid": { en: "Paid", id: "Membayar" },
   "bal.share": { en: "Expense", id: "Pengeluaran" },
   "bal.net": { en: "Balance", id: "Saldo" },
@@ -315,6 +316,7 @@ export const STRINGS: Record<string, Entry> = {
   "rpt.payments": { en: "Payments", id: "Pembayaran" },
   "rpt.rounding": { en: "Rounding", id: "Pembulatan" },
   "rpt.col_member": { en: "Member", id: "Anggota" },
+  "rpt.col_ccy": { en: "CCY", id: "Mata Uang" },
   "rpt.col_paid": { en: "Paid", id: "Membayar" },
   "rpt.col_share": { en: "Expense", id: "Pengeluaran" },
   "rpt.col_net": { en: "Balance", id: "Saldo" },

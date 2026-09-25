@@ -115,10 +115,11 @@
     });
     $('bal-body').innerHTML = rows.map(function (b) {
       var n = BigInt(b.net);
-      return '<tr><td>' + esc(nameOf(b.id)) + '</td>' +
+      var abs = (n < 0n ? -n : n).toString();
+      return '<tr><td>' + esc(nameOf(b.id)) + '</td><td class="muted">' + esc(G().currency) + '</td>' +
         '<td class="num">' + moneyHtml(b.paid, G().currency, G().dp, { plain: true }) + '</td>' +
         '<td class="num">' + moneyHtml(b.share, G().currency, G().dp, { plain: true }) + '</td>' +
-        '<td class="num ' + (n > 0n ? 'pos' : n < 0n ? 'neg' : '') + '">' + signedMoneyHtml(b.net, G().currency, G().dp) + '</td></tr>';
+        '<td class="num ' + (n > 0n ? 'pos' : n < 0n ? 'neg' : '') + '">' + (n > 0n ? '+' : n < 0n ? '-' : '') + moneyHtml(abs, G().currency, G().dp, { plain: true }) + '</td></tr>';
     }).join('');
 
     var tr = v.transfers;
@@ -179,13 +180,16 @@
     var list = v.bills.slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : Number(b.id) - Number(a.id); });
     list = pageOf('bills', list, 'bills-pager', renderBills);
     $('bills-body').innerHTML = list.map(function (b) {
-      var mine = v.me && b.shares[v.me] ? b.shares[v.me][0] : null;
-      var conv = b.currency !== G().currency && b.converted != null ? '<div class="tool-sub">' + gmoneyHtml(b.converted) + '</div>' : '';
+      var sh = v.me ? b.shares[v.me] : null;
+      var mine = sh ? sh[0] : null;
+      var foreign = b.currency !== G().currency;
+      var conv = foreign && b.converted != null ? '<div class="tool-sub">' + gmoneyHtml(b.converted) + '</div>' : '';
+      var mineConv = foreign && sh && sh[1] != null ? '<div class="tool-sub">' + gmoneyHtml(sh[1]) + '</div>' : '';
       var err = b.error ? '<div class="tool-sub neg">' + esc(errMsg(b.error.code, b.error.params)) + '</div>' : '';
       return '<tr class="row-link" tabindex="0" data-bill="' + esc(b.id) + '"><td>' + esc(b.description) +
         '<div class="tool-sub">' + esc(fmtDate(b.date)) + ' · ' + esc(t('bill.paid_by_x', nameOf(b.payer))) + '</div>' + err + '</td>' +
         '<td class="num">' + moneyHtml(b.total, b.currency, b.dp) + conv + '</td>' +
-        '<td class="num">' + (mine == null ? '<span class="muted">-</span>' : moneyHtml(mine, b.currency, b.dp, { plain: true })) + '</td></tr>';
+        '<td class="num">' + (mine == null ? '<span class="muted">-</span>' : moneyHtml(mine, b.currency, b.dp) + mineConv) + '</td></tr>';
     }).join('');
   }
 
@@ -288,10 +292,11 @@
   }
 
   function rateText(r) {
-    // Stored big side first: inverted means 1 settlement unit = rate foreign.
-    return r.inverted
-      ? '1 ' + G().currency + ' = ' + fmtRate(r.rate) + ' ' + r.currency
-      : '1 ' + r.currency + ' = ' + fmtRate(r.rate) + ' ' + G().currency;
+    // Big side first, meaningful decimals: inverted means 1 settlement unit = rate foreign.
+    var d = window.SBEngine.displayRate(r.rate, r.inverted);
+    return d.inverted
+      ? '1 ' + G().currency + ' = ' + fmtRate(d.text) + ' ' + r.currency
+      : '1 ' + r.currency + ' = ' + fmtRate(d.text) + ' ' + G().currency;
   }
   S.rateText = rateText;
 

@@ -17,7 +17,7 @@
 import { atomic, execute, fetchall, fetchone } from "../db";
 import { ActionError, err, fail, ok, type Result } from "../errors";
 import {
-  ADJ_KINDS, allocate, EngineError, ENGINE_VERSION, findRate, isCurrency, minorUnits, normCurrency, parseMinor, parseRate,
+  ADJ_KINDS, allocate, bigSideRate, EngineError, ENGINE_VERSION, findRate, isCurrency, minorUnits, normCurrency, parseMinor, parseRate,
   type AdjKind, type BillIn,
 } from "../engine";
 import { newGroupId, newInviteCode } from "../ids";
@@ -839,8 +839,7 @@ export async function setRate(p: { user_id: string } & Params) {
     if (!isCurrency(currency)) fail("currency_invalid");
     if (currency === c.s.group.currency) fail("rate_not_allowed");
     const effective = _effective(p.effective);
-    const rate = parseRate(p.rate);
-    const inverted = p.inverted === true;
+    const { rate, inverted } = bigSideRate(parseRate(p.rate), p.inverted === true);
     const source = p.source === "auto" ? "auto" : "manual";
     const gid = c.s.group.group_id;
     const rep = p.replace as Params | undefined;
@@ -985,11 +984,11 @@ export async function changeCurrency(p: { user_id: string } & Params) {
       const rc = normCurrency(r.currency);
       if (!isCurrency(rc)) fail("currency_invalid");
       if (rc === currency) continue;
-      const rate = parseRate(r.rate);
+      const { rate, inverted } = bigSideRate(parseRate(r.rate), r.inverted === true);
       await execute(
         `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by)
          VALUES ($1, $2, $3::date, $4, $5, 'manual', $6)`,
-        [gid, rc, _effective(r.effective), rate.text, r.inverted === true, c.userId],
+        [gid, rc, _effective(r.effective), rate.text, inverted, c.userId],
       );
     }
     await c.log("currency", "group", gid, { from: c.s.group.currency, to: currency, rates: rows });

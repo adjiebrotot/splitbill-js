@@ -286,6 +286,10 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     expect(v.group.currency).toBe("JPY");
     expect(v.bills[0].converted).toBe(3000n);
     expect(v.balances.reduce((a, b) => a + b.net, 0n)).toBe(0n);
+    // A rate under 1 is stored big side first: 1 JPY = 108.1081081 IDR, not 1 IDR = 0.00925 JPY.
+    await A.setRate({ user_id: uid.ali, group_id: g.group_id, currency: "IDR", effective: "-infinity", rate: "0.00925" });
+    v = await view(g.group_id);
+    expect(v.rates.find((r) => r.currency === "IDR")).toMatchObject({ rate: "108.1081081", inverted: true });
   });
 
   it("rates: a missing one is fetched on save, from the start, by any member", async () => {
