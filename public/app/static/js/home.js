@@ -5,16 +5,53 @@
   var OFFLINE = false;
   var people = [];
 
-  function renderList(list) {
+  /* Open splits first, always. Within each half: newest activity on top,
+     or A-Z when the viewer picks it (remembered on this device). */
+  var PAGE = 1, SIZE = 10;
+  var SORT = 'new';
+  try { if (localStorage.getItem('sb_splits_sort') === 'az') SORT = 'az'; } catch (e) { /* storage off */ }
+
+  function isSettled(g) {
+    // A one-off has no Settle step: it is settled once nobody owes anybody.
+    return g.status === 'settled' || (g.kind === 'one_off' && g.bills > 0 && g.owed === 0);
+  }
+  function sorted(list) {
+    return list.slice().sort(function (a, b) {
+      var sa = isSettled(a) ? 1 : 0, sb = isSettled(b) ? 1 : 0;
+      if (sa !== sb) return sa - sb;
+      if (SORT === 'az') {
+        var c = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        if (c) return c;
+      }
+      var ta = Date.parse(a.last_at || a.created_at) || 0, tb = Date.parse(b.last_at || b.created_at) || 0;
+      return tb - ta;
+    });
+  }
+  function renderSort() {
+    var b = document.getElementById('splits-sort');
+    b.textContent = t(SORT === 'az' ? 'home.sort_az' : 'home.sort_new');
+    b.hidden = GROUPS.length < 2;
+  }
+  document.getElementById('splits-sort').addEventListener('click', function () {
+    SORT = SORT === 'az' ? 'new' : 'az';
+    try { localStorage.setItem('sb_splits_sort', SORT); } catch (e) { /* storage off */ }
+    PAGE = 1;
+    renderList(GROUPS);
+  });
+
+  function renderList(all) {
     var body = document.getElementById('splits-body');
     var wrap = document.getElementById('splits-wrap');
-    if (!list.length) { setTableEmpty(wrap, t('home.empty')); return; }
+    var pager = document.getElementById('splits-pager');
+    renderSort();
+    if (!all.length) { setTableEmpty(wrap, t('home.empty')); pager.hidden = true; return; }
     setTableEmpty(wrap, '');
+    var list = sorted(all);
+    PAGE = renderPager(pager, PAGE, list.length, SIZE, function (p) { PAGE = p; renderList(GROUPS); });
+    list = list.slice((PAGE - 1) * SIZE, PAGE * SIZE);
     body.innerHTML = list.map(function (g) {
       var kind = g.kind === 'travel' ? t('kind.travel') : t('kind.one_off');
-      // A one-off has no Settle step: it is settled once nobody owes anybody.
-      var settled = g.status === 'settled' || (g.kind === 'one_off' && g.bills > 0 && g.owed === 0);
-      var status = settled
+      var status = isSettled(g)
         ? '<span class="chip chip-settled">' + esc(t('status.settled')) + '</span>'
         : '<span class="chip chip-open">' + esc(t('status.open')) + '</span>';
       var net = BigInt(g.my_net);
@@ -38,9 +75,13 @@
   function showVerify(me) {
     var card = document.getElementById('verify-card');
     if (!me.email || me.email_verified) { card.hidden = true; return; }
+    try { card.open = localStorage.getItem('sb_verify_folded') !== '1'; } catch (e) { /* storage off */ }
     card.hidden = false;
     document.getElementById('verify-desc').textContent = t('verify.desc', me.email);
   }
+  document.getElementById('verify-card').addEventListener('toggle', function (ev) {
+    try { localStorage.setItem('sb_verify_folded', ev.currentTarget.open ? '0' : '1'); } catch (e) { /* storage off */ }
+  });
   document.getElementById('verify-btn').addEventListener('click', function (ev) {
     var btn = ev.currentTarget;
     setBusy(btn, true);

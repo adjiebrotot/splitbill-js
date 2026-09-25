@@ -22,6 +22,7 @@ const C = {
   muted: [91, 102, 112] as RGB,
   border: [224, 230, 240] as RGB,
   primary: [139, 184, 248] as RGB,
+  primaryInk: [20, 53, 107] as RGB,
   openBg: [255, 246, 224] as RGB,
   openInk: [107, 78, 0] as RGB,
   okBg: [200, 247, 197] as RGB,
@@ -168,9 +169,18 @@ function layout(doc: ReportDoc, p: Painter, W: number, pad: number): Row[] {
     }
   }
 
+  // Branding: "Made with splitbill.adjiebrotots.com", centred under a rule.
   rows.push({
-    h: 44,
-    draw: (pp, y) => pp.text(doc.footer, W - pad, y + 30, "sans", 10, C.muted, "right"),
+    h: 52,
+    draw: (pp, y) => {
+      pp.line(pad, y + 18, pad + inner, y + 18, C.border);
+      const lead = doc.footer + " ";
+      const lw = pp.measure(lead, "sans", 11);
+      const bw = pp.measure(doc.brand, "sansB", 11);
+      const x = pad + (inner - lw - bw) / 2;
+      pp.text(lead, x, y + 40, "sans", 11, C.muted);
+      pp.text(doc.brand, x + lw, y + 40, "sansB", 11, C.primaryInk);
+    },
   });
   return rows;
 }

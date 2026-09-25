@@ -49,7 +49,7 @@ addRoutes({
     }));
     if (!r.ok) return answer(r);
     const d = r.data;
-    if (d.kind === "text") return json({ ok: true, data: { text: d.text, filename: d.filename } });
+    if (d.kind === "text") return json({ ok: true, data: { text: d.text, doc: d.doc, filename: d.filename } });
     return binResponse(d.bytes, {
       "content-type": d.type,
       "content-disposition": `attachment; filename="${d.filename}"`,
