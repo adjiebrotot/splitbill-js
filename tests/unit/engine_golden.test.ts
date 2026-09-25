@@ -3,7 +3,7 @@
  * Amounts are minor units (cents unless noted).
  */
 import { describe, it, expect } from "vitest";
-import { allocate, computeGroup, convertShares, convertTotal, factorFromRate, parseRate, type BillIn, type GroupIn } from "@/engine";
+import { allocate, bigSideRate, computeGroup, convertShares, convertTotal, displayRate, factorFromRate, parseRate, type BillIn, type GroupIn } from "@/engine";
 
 const order = new Map([["ali", 1], ["bob", 2], ["cal", 3], ["don", 4]]);
 const members = [...order].map(([id, position]) => ({ id, position }));
@@ -167,5 +167,28 @@ describe("payments", () => {
       { payments: [{ id: "p", from: "bob", to: "ali", currency: "USD", dp: 2, amount: 1500n, date: "2026-09-02" }] },
     ));
     expect(plain(g.transfers)).toEqual(["ali->bob 500"]);
+  });
+});
+
+describe("rates: stored and shown big side first", () => {
+  it("shows the decimals that mean something", () => {
+    expect(displayRate("21624.09938", false)).toEqual({ text: "21624", inverted: false });
+    expect(displayRate("12.151245533", false)).toEqual({ text: "12.15", inverted: false });
+    // 1 IDR = 0.00007901521 AUD reads as 1 AUD = 12,656 IDR.
+    expect(displayRate("0.00007901521", false)).toEqual({ text: "12656", inverted: true });
+    expect(displayRate("1", true)).toEqual({ text: "1", inverted: true });
+  });
+
+  it("stores a rate under 1 as its reciprocal, 10 significant digits", () => {
+    const r = bigSideRate(parseRate("0.00007901521"), false);
+    expect(r.inverted).toBe(true);
+    expect(r.rate.text).toBe("12655.79121");
+    const inv = bigSideRate(parseRate("0.5"), true);
+    expect([inv.rate.text, inv.inverted]).toEqual(["2", false]);
+    // A rate of 1 or more is kept exactly as typed.
+    const big = bigSideRate(parseRate("21624.09938"), false);
+    expect([big.rate.text, big.inverted]).toEqual(["21624.09938", false]);
+    // A reciprocal past the largest rate stays as given.
+    expect(bigSideRate(parseRate("0.000000000001"), false).rate.text).toBe("0.000000000001");
   });
 });

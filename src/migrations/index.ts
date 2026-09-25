@@ -6,8 +6,10 @@
  */
 import m001 from "./001_initial";
 import m002 from "./002_guard_audit_nulls";
+import m003 from "./003_rates_big_side_first";
 
 export const MIGRATIONS: Record<string, string> = {
   "001_initial": m001,
   "002_guard_audit_nulls": m002,
+  "003_rates_big_side_first": m003,
 };

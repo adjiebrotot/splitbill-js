@@ -6,7 +6,7 @@
  * here, the per-item breakdown in an individual report, ends in a "Rounding"
  * line so its lines always add up to the engine's share.
  */
-import { formatAmount, frac, roundHalfEven, type Frac } from "../engine";
+import { displayRate, formatAmount, frac, roundHalfEven, type Frac } from "../engine";
 import { t, tf } from "../i18n";
 import type { GroupView, Stage } from "./ledger";
 
@@ -96,8 +96,9 @@ function rateLines(v: View, lang: string): Line[] {
   for (const b of v.bills) if (b.rate) used.set(`${b.rate.currency}|${b.rate.effective}`, b.rate);
   for (const p of v.payments) if (p.rate) used.set(`${p.rate.currency}|${p.rate.effective}`, p.rate);
   return [...used.values()].sort((a, b) => (a.currency + a.effective < b.currency + b.effective ? -1 : 1)).map((r) => {
-    const rate = fmtRate(r.rate, lang);
-    const pair = r.inverted ? `1 ${v.group.currency} = ${rate} ${r.currency}` : `1 ${r.currency} = ${rate} ${v.group.currency}`;
+    const d = displayRate(r.rate, r.inverted);
+    const rate = fmtRate(d.text, lang);
+    const pair = d.inverted ? `1 ${v.group.currency} = ${rate} ${r.currency}` : `1 ${r.currency} = ${rate} ${v.group.currency}`;
     const from = r.effective === "-infinity" ? t("rate.from_start", lang).toLowerCase() : fmtDate(r.effective, lang);
     return { text: `${pair} · ${from}`, muted: true };
   });
@@ -110,7 +111,7 @@ export function groupReport(v: View, lang: string, now = new Date()): ReportDoc 
   const rows = v.balances
     .filter((b) => v.members.find((m) => m.id === b.id)?.active || BigInt(String(b.net)) !== 0n || BigInt(String(b.paid)) !== 0n)
     .map((b) => {
-      const row = [nm.get(b.id) ?? "?", formatAmount(BigInt(String(b.paid)), g.dp, lang), formatAmount(BigInt(String(b.share)), g.dp, lang)];
+      const row = [nm.get(b.id) ?? "?", g.currency, formatAmount(BigInt(String(b.paid)), g.dp, lang), formatAmount(BigInt(String(b.share)), g.dp, lang)];
       if (hasPayments) {
         const pay = BigInt(String(b.sent)) - BigInt(String(b.received));
         row.push(pay === 0n ? "-" : signed(pay, g.currency, g.dp, lang).replace(`${g.currency} `, ""));
@@ -118,7 +119,7 @@ export function groupReport(v: View, lang: string, now = new Date()): ReportDoc 
       row.push(signed(b.net, g.currency, g.dp, lang).replace(`${g.currency} `, ""));
       return row;
     });
-  const columns = [t("rpt.col_member", lang), t("rpt.col_paid", lang), t("rpt.col_share", lang)];
+  const columns = [t("rpt.col_member", lang), t("rpt.col_ccy", lang), t("rpt.col_paid", lang), t("rpt.col_share", lang)];
   if (hasPayments) columns.push(t("rpt.payments", lang));
   columns.push(t("rpt.col_net", lang));
 
@@ -132,7 +133,7 @@ export function groupReport(v: View, lang: string, now = new Date()): ReportDoc 
     : [{ text: t("rpt.none", lang), muted: true }];
 
   const sections: Section[] = [
-    { heading: t("rpt.balances", lang), kind: "table", columns, right: columns.map((_, i) => i > 0), rows },
+    { heading: t("rpt.balances", lang), kind: "table", columns, right: columns.map((_, i) => i > 1), rows },
     { heading: t("rpt.transfers", lang), kind: "lines", lines: transfers },
   ];
   const rates = rateLines(v, lang);
