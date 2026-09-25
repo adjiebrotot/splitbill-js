@@ -488,6 +488,56 @@
     try { return crypto.randomUUID(); } catch (e) { return String(Date.now()) + Math.random().toString(36).slice(2); }
   }
 
+  /* ── Dropdown placement (finance-tracker ui.js placeDropdown) ──
+     A combo's list lives on document.body so no modal or card clips it.
+     Call with the list already `.open` (a display:none list measures zero).
+     It sits under the field, above it when below has no room, clamped to the
+     viewport. One capture-phase listener follows every open list on scroll
+     and resize, and closes it once its field is mostly out of view. */
+  var EDGE = 8, GAP = 4;
+  function placeDropdown(listEl, anchorEl) {
+    if (!listEl || !anchorEl) return;
+    listEl._anchor = anchorEl;
+    var r = anchorEl.getBoundingClientRect();
+    var cap = Math.max(120, window.innerWidth - EDGE * 2);
+    listEl.style.maxWidth = cap + 'px';
+    listEl.style.minWidth = Math.min(r.width, cap) + 'px';
+    var w = listEl.offsetWidth || r.width;
+    listEl.style.left = Math.max(EDGE, Math.min(r.left, window.innerWidth - EDGE - w)) + 'px';
+    var h = listEl.offsetHeight;
+    var below = window.innerHeight - EDGE - (r.bottom + GAP);
+    var above = r.top - GAP - EDGE;
+    listEl.style.top = (h > below && above > below) ? Math.max(EDGE, r.top - GAP - h) + 'px' : (r.bottom + GAP) + 'px';
+  }
+  function _anchorUsable(el) {
+    if (!el || !document.body.contains(el)) return false;
+    var r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    var box = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+    for (var p = el.parentElement; p; p = p.parentElement) {
+      var st = getComputedStyle(p);
+      if (st.overflowX === 'visible' && st.overflowY === 'visible') continue;
+      var pr = p.getBoundingClientRect();
+      box.left = Math.max(box.left, pr.left); box.top = Math.max(box.top, pr.top);
+      box.right = Math.min(box.right, pr.right); box.bottom = Math.min(box.bottom, pr.bottom);
+    }
+    var visW = Math.min(r.right, box.right) - Math.max(r.left, box.left);
+    var visH = Math.min(r.bottom, box.bottom) - Math.max(r.top, box.top);
+    return visW >= r.width / 2 && visH >= r.height / 2;
+  }
+  function _reflowLists(e) {
+    var open = document.querySelectorAll('.combo-list.open');
+    for (var i = 0; i < open.length; i++) {
+      var l = open[i];
+      if (e && e.type === 'scroll' && l.contains(e.target)) continue;
+      if (_anchorUsable(l._anchor)) placeDropdown(l, l._anchor);
+      else l.classList.remove('open');
+    }
+  }
+  window.addEventListener('scroll', _reflowLists, true);
+  window.addEventListener('resize', _reflowLists);
+
+  window.placeDropdown = placeDropdown;
   window.esc = esc;
   window.icon = icon;
   window.showToast = showToast;

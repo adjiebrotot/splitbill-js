@@ -390,7 +390,7 @@
     B.source = d.source || 'chat';
     if (d.description) $('bill-desc').value = d.description;
     if (d.date) $('bill-date').value = d.date;
-    if (d.currency) $('bill-currency').value = d.currency;
+    if (d.currency) setCurrencyValue($('bill-currency'), d.currency);
     if (d.payer) B.payer = d.payer;
     B.payerUnknown = d.payer_unknown || null;
     B.unknown = (d.unknown || []).slice();

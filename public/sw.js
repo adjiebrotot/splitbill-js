@@ -7,33 +7,33 @@
  *   page loads      network first; offline, the page's cached shell, which
  *                   then renders its last boot payload from localStorage.
  */
-const CACHE = 'sb-dfbd5f5e';
+const CACHE = 'sb-5c50eae0';
 const STATIC = [
-  '/app/static/css/shared.css?v=bac378f9',
+  '/app/static/css/shared.css?v=ebc65269',
   '/app/static/assets/icons.svg?v=17f4531f',
-  '/app/static/js/i18n-all.js?v=7d28b53c',
+  '/app/static/js/i18n-all.js?v=24389694',
   '/app/static/js/boot.js?v=466484cf',
   '/app/static/js/engine.js?v=f52c3ca1',
-  '/app/static/js/ui.js?v=d5b36f67',
+  '/app/static/js/ui.js?v=4a36a238',
   '/app/static/js/i18n.js?v=3c7c0ae8',
   '/app/static/js/topbar.js?v=208398f2',
-  '/app/static/js/currency.js?v=1c84ba71',
-  '/app/static/js/home.js?v=ff31c4cb',
-  '/app/static/js/group.js?v=98887e9d',
-  '/app/static/js/bill.js?v=05135910',
-  '/app/static/js/settings.js?v=445072ee',
+  '/app/static/js/currency.js?v=06eddacb',
+  '/app/static/js/home.js?v=7d248f2e',
+  '/app/static/js/group.js?v=f9fd6492',
+  '/app/static/js/bill.js?v=2167ddea',
+  '/app/static/js/settings.js?v=df8606be',
   '/app/static/js/join.js?v=20af1930',
   '/app/static/js/auth.js?v=2cde165a',
   '/app/static/js/admin.js?v=30172910',
   '/app/static/icons/icon-192.png?v=34543553',
-  '/app/static/pages/landing.html?v=3f86f85d',
-  '/app/static/pages/login.html?v=d2eeb27f',
-  '/app/static/pages/register.html?v=df491913',
-  '/app/static/pages/home.html?v=de801a47',
-  '/app/static/pages/group.html?v=b6227f7c',
-  '/app/static/pages/join.html?v=9f3fa731',
-  '/app/static/pages/settings.html?v=94cd62a2',
-  '/app/static/pages/admin.html?v=e31fc55c',
+  '/app/static/pages/landing.html?v=9e77ae77',
+  '/app/static/pages/login.html?v=860a21fd',
+  '/app/static/pages/register.html?v=05c0ae0e',
+  '/app/static/pages/home.html?v=22853896',
+  '/app/static/pages/group.html?v=10f2a829',
+  '/app/static/pages/join.html?v=3b5fbc44',
+  '/app/static/pages/settings.html?v=96af6b55',
+  '/app/static/pages/admin.html?v=5aebe3fd',
 ];
 
 /* Which shell a pretty URL is served from (mirrors next.config.mjs rewrites). */

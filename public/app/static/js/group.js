@@ -304,6 +304,17 @@
   };
   S.gid = GID;
 
+  /* The currency picker's Recommended: the user's default, this split's
+     currency, then every currency its bills, payments and rates use. */
+  setCurrencyHints(function () {
+    if (!S.view) return [];
+    var out = [S.me && S.me.default_currency, G().currency];
+    S.view.bills.forEach(function (b) { out.push(b.currency); });
+    S.view.payments.forEach(function (p) { out.push(p.currency); });
+    S.view.rates.forEach(function (r) { out.push(r.currency); });
+    return out;
+  });
+
   // ── events ──
   function openBillRow(ev) {
     var tr = ev.target.closest('tr[data-bill]');
@@ -642,7 +653,7 @@
     closeModal('modal-manage');
     fillCurrencySelect($('ccy-new'), G().currency);
     renderRates();
-    openModal('modal-ccy', { initialFocus: '#ccy-new' });
+    openModal('modal-ccy', { initialFocus: '#ccy-new-q' });
   });
   $('ccy-new').addEventListener('change', renderRates);
   $('ccy-form').addEventListener('submit', function (ev) {

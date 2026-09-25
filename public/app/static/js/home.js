@@ -89,6 +89,13 @@
     renderPeople();
   });
 
+  /* Recommended in the currency picker: the user's default, then the
+     currencies their splits already use. */
+  var GROUPS = [];
+  setCurrencyHints(function () {
+    return [ME && ME.default_currency].concat(GROUPS.map(function (g) { return g.currency; }));
+  });
+
   function openTrip() {
     if (OFFLINE) return showToast(errMsg('offline'), 'error');
     people = [];
@@ -143,6 +150,7 @@
       b.hidden = false;
     }
     showVerify(ME);
-    renderList(r.data.groups || []);
+    GROUPS = r.data.groups || [];
+    renderList(GROUPS);
   });
 }());

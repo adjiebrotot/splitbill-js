@@ -1246,6 +1246,38 @@
   }
   @media (pointer: coarse) { .mchip-input { min-height: 40px; } }
 
+  /* ── Currency combo (currency.js), from finance-tracker .combo-wrap ──
+     The list is rendered on document.body and placed by placeDropdown (ui.js);
+     its z-index clears .modal-overlay (10000) so it opens above a modal. */
+  .combo-wrap { position: relative; display: block; }
+  .combo-wrap > input[type=text] {
+    padding-right: 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237f8c8d' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    text-overflow: ellipsis;
+  }
+  .combo-wrap > input[type=text]:focus {
+    background-color: #fff;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%235a91e8' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+  }
+  .combo-wrap > input[type=text]:disabled { opacity: 0.6; cursor: not-allowed; }
+  .combo-list {
+    display: none; position: fixed; z-index: 10050; width: max-content;
+    background: var(--surface); border: 1.5px solid var(--primary); border-radius: 10px;
+    box-shadow: var(--shadow); max-height: 210px; overflow-y: auto;
+  }
+  .combo-list.open { display: block; }
+  .combo-item { padding: 9px 13px; font-size: 14px; cursor: pointer; color: var(--text); transition: background 0.12s; }
+  .combo-item:hover, .combo-item.highlighted { background: #eef5ff; color: var(--primary-dark); }
+  .combo-item[aria-selected="true"] { font-weight: 600; }
+  .combo-empty { padding: 9px 13px; font-size: 13px; color: var(--text-muted); font-style: italic; }
+  .combo-sep {
+    padding: 4px 13px; font-size: 11px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+  }
+
   /* Date, currency and receipt total: folded until needed. */
   .more > summary {
     display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
