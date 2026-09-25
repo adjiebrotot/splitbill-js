@@ -789,7 +789,9 @@
 
   /* Two fields that are one answer: an amount and its currency, a target and
      its date. One column once there is no room for two. */
-  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* Stacked on a phone, the two fields are two blocks: --gap between rows,
+     the same as every other field, and 10px between columns side by side. */
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap) 10px; }
   @media (max-width: 560px) { .form-row { grid-template-columns: 1fr; } }
 
   .tool-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
@@ -1181,11 +1183,15 @@
   .btn-row .btn { flex: 1 1 auto; }
 
   /* The one photo picker in the bill modal. */
+  /* It is a <label> (it opens the file input), so it drops the label token's
+     caps and bottom margin: it reads as a drop zone, not a field name. */
   .photo-pick {
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-    border: 1.5px dashed var(--border-strong); border-radius: 12px; padding: 18px;
-    color: var(--text-muted); font-size: 13px; cursor: pointer; text-align: center;
+    border: 1.5px dashed var(--border-strong); border-radius: 12px; padding: 20px;
+    color: var(--text-muted); font-size: 14px; font-weight: 600; cursor: pointer; text-align: center;
+    text-transform: none; letter-spacing: normal; margin-bottom: 0;
   }
+  .photo-pick .icon { width: 22px; height: 22px; }
   .photo-pick:hover { background: var(--bg); }
   .photo-thumb { max-width: 100%; max-height: 180px; border-radius: 10px; display: block; margin: 0 auto; }
 
@@ -1207,8 +1213,10 @@
   /* Rare actions, one per row, in a modal. */
   .btn-col { display: flex; flex-direction: column; gap: 10px; }
   .modal-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }
-  /* A modal with no action row still ends 20px under its last block. */
-  .modal-card > .modal-body:last-child { padding-bottom: 24px; }
+  /* A modal with no action row (or with it hidden, as the bill editor's is
+     until there is a form to save) still ends 20px under its last block. */
+  .modal-card > .modal-body:last-child,
+  .modal-card > .modal-body:has(+ .modal-actions[hidden]) { padding-bottom: 24px; }
 
   /* "+" at the end of a chip row: add a person right there. */
   .mchip-add { min-width: 40px; font-size: 16px; line-height: 1; }
