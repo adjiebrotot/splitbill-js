@@ -648,7 +648,6 @@
     .top-bar { padding: 0 12px; }
     .top-bar .top-nav { display: none; }
     .top-bar .logo { font-size: 14px; gap: 6px; }
-    .top-bar .logo span { display: none; }
     .top-bar-right { gap: 0; }
   }
 
