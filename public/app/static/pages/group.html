@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="/app/static/css/shared.css?v=b8cf820d">
+<link rel="stylesheet" href="/app/static/css/shared.css?v=bac378f9">
 <script src="/app/static/js/i18n-all.js?v=7d28b53c"></script>
 <script src="/app/static/js/boot.js?v=466484cf" data-page="group" data-auth="1"></script>
 </head>
@@ -150,7 +150,7 @@
           <div id="panel-simple" class="stack">
             <div class="field">
               <label for="bill-total" data-i18n="bill.total">Total</label>
-              <input type="text" id="bill-total" inputmode="decimal" class="mono">
+              <div class="amount-wrap"><span class="amount-affix" aria-hidden="true"></span><input type="text" id="bill-total" inputmode="decimal" class="mono"></div>
             </div>
             <div class="field" id="even-who">
               <label data-i18n="bill.for_whom">For whom</label>
@@ -186,7 +186,7 @@
               </div>
               <div class="field" id="stated-field">
                 <label for="bill-stated"><span data-i18n="bill.stated">Receipt total</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="bill.stated_tip" data-tip="Optional. When filled, the bill cannot be saved until the lines add up to it.">?</span></label>
-                <input type="text" id="bill-stated" inputmode="decimal" class="mono">
+                <div class="amount-wrap"><span class="amount-affix" aria-hidden="true"></span><input type="text" id="bill-stated" inputmode="decimal" class="mono"></div>
               </div>
             </div>
           </details>
@@ -279,7 +279,7 @@
           <div class="field"><label for="pay-to" data-i18n="pay.to">To</label><select id="pay-to"></select></div>
         </div>
         <div class="form-row">
-          <div class="field"><label for="pay-amount" data-i18n="pay.col_amount">Amount</label><input type="text" id="pay-amount" inputmode="decimal" class="mono"></div>
+          <div class="field"><label for="pay-amount" data-i18n="pay.col_amount">Amount</label><div class="amount-wrap"><span class="amount-affix" aria-hidden="true"></span><input type="text" id="pay-amount" inputmode="decimal" class="mono"></div></div>
           <div class="field"><label for="pay-currency" data-i18n="bill.currency">Currency</label><select id="pay-currency"></select></div>
         </div>
         <div class="form-row">
@@ -389,8 +389,8 @@
   <script src="/app/static/js/ui.js?v=d5b36f67"></script>
   <script src="/app/static/js/i18n.js?v=3c7c0ae8"></script>
   <script src="/app/static/js/topbar.js?v=208398f2"></script>
-  <script src="/app/static/js/currency.js?v=7e4d6b4b"></script>
-  <script src="/app/static/js/group.js?v=f8f721f7"></script>
-  <script src="/app/static/js/bill.js?v=f276cb09"></script>
+  <script src="/app/static/js/currency.js?v=1c84ba71"></script>
+  <script src="/app/static/js/group.js?v=98887e9d"></script>
+  <script src="/app/static/js/bill.js?v=05135910"></script>
 </body>
 </html>

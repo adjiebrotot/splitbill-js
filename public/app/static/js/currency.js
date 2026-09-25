@@ -14,5 +14,26 @@
     if (selected) sel.value = selected;
   }
 
+  /* What the number in a money box is counted in, printed where it is typed
+     (finance-tracker .amount-wrap has-prefix): "IDR  120,000". Every
+     .amount-wrap under `root` gets `code`. --amt-affix is the code's own
+     width, so the digits clear it; offsetWidth is 0 in a closed modal, and
+     the character estimate stands in there. */
+  function setAmountAffix(root, code) {
+    if (!root) return;
+    var wraps = root.querySelectorAll('.amount-wrap');
+    for (var i = 0; i < wraps.length; i++) {
+      var w = wraps[i];
+      var a = w.querySelector('.amount-affix');
+      if (!a) continue;
+      var txt = code || '';
+      if (a.textContent !== txt) a.textContent = txt;
+      a.classList.add('is-prefix');
+      w.classList.toggle('has-prefix', !!txt);
+      w.style.setProperty('--amt-affix', (a.offsetWidth || Math.round(txt.length * 7.5)) + 'px');
+    }
+  }
+
   window.fillCurrencySelect = fillCurrencySelect;
+  window.setAmountAffix = setAmountAffix;
 }());

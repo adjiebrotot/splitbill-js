@@ -56,6 +56,11 @@
       }).join('') + plusChip(where);
   }
 
+  /* A money box carries the bill's currency code in front of the figure. */
+  function amountBox(input) {
+    return '<div class="amount-wrap has-prefix"><span class="amount-affix is-prefix" aria-hidden="true">' + esc(ccy()) + '</span>' + input + '</div>';
+  }
+
   // ── render the editable parts ──
   function renderPayer() {
     $('payer-chips').innerHTML = pickable().map(function (m) {
@@ -69,7 +74,7 @@
       return '<div class="line" data-i="' + i + '">' +
         '<div class="line-row">' +
           '<input type="text" class="it-name" maxlength="120" value="' + esc(it.name) + '" placeholder="' + esc(t('bill.item_ph')) + '" aria-label="' + esc(t('bill.item')) + '"' + dis() + '>' +
-          '<input type="text" class="amt it-amt" inputmode="decimal" value="' + esc(it.amount) + '" placeholder="0" aria-label="' + esc(t('bill.amount')) + '"' + dis() + '>' +
+          amountBox('<input type="text" class="amt it-amt" inputmode="decimal" value="' + esc(it.amount) + '" placeholder="0" aria-label="' + esc(t('bill.amount')) + '"' + dis() + '>') +
           '<button type="button" class="btn btn-ghost btn-compact btn-icon it-del" aria-label="' + esc(t('common.remove')) + '"' + dis() + '>' + icon('x') + '</button>' +
         '</div>' +
         '<div class="chips">' + chipsHtml(it.members, 'it-chip', 'it:' + i) + '</div>' +
@@ -84,7 +89,7 @@
         '<select class="adj-kind" aria-label="' + esc(t('adj.kind')) + '"' + dis() + '>' + kinds.map(function (k) {
           return '<option value="' + k + '"' + (k === a.kind ? ' selected' : '') + '>' + esc(t('adj.' + k)) + '</option>';
         }).join('') + '</select>' +
-        '<input type="text" class="amt adj-amt" inputmode="decimal" value="' + esc(a.amount) + '" placeholder="' + esc(a.kind === 'tax' || a.kind === 'service' ? '10%' : '0') + '" aria-label="' + esc(t('bill.amount')) + '"' + dis() + '>' +
+        amountBox('<input type="text" class="amt adj-amt" inputmode="decimal" value="' + esc(a.amount) + '" placeholder="' + esc(a.kind === 'tax' || a.kind === 'service' ? '10%' : '0') + '" aria-label="' + esc(t('bill.amount')) + '"' + dis() + '>') +
         '<button type="button" class="btn btn-ghost btn-compact btn-icon adj-del" aria-label="' + esc(t('common.remove')) + '"' + dis() + '>' + icon('x') + '</button>' +
       '</div></div>';
     }).join('');
@@ -215,6 +220,7 @@
   function preview() {
     var rec = $('reconcile'), pv = $('preview');
     var d = dp(), c = ccy();
+    setAmountAffix($('bill-fields'), c);
     $('bill-more-sum').textContent = fmtDate($('bill-date').value) + ' · ' + c;
     ok = false;
     var built, alloc;

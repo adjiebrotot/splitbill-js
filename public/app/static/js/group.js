@@ -482,11 +482,13 @@
     memberOptions($('pay-to'), other ? other.id : null);
     fillCurrencySelect($('pay-currency'), G().currency);
     $('pay-currency').disabled = !isTravel();
+    setAmountAffix($('pay-form'), G().currency);
     $('pay-amount').value = '';
     $('pay-note').value = '';
     $('pay-date').value = todayIn(G().timezone);
     openModal('modal-pay', { initialFocus: '#pay-amount' });
   }
+  $('pay-currency').addEventListener('change', function () { setAmountAffix($('pay-form'), $('pay-currency').value); });
   $('pay-form').addEventListener('submit', function (ev) {
     ev.preventDefault();
     var ccy = $('pay-currency').value;

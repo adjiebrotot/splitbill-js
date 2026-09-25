@@ -1137,12 +1137,31 @@
   .line-row + .chips { margin-top: 6px; }
   .line-row { display: flex; gap: 8px; align-items: center; }
   .line-row input[type=text] { flex: 1 1 auto; min-width: 0; }
-  .line-row .amt { flex: 0 0 130px; text-align: right; font-family: var(--mono); }
+  .line-row .amount-wrap { flex: 0 0 150px; }
+  /* An adjustment row has no name box: its amount takes the rest of the row. */
+  .line-row select + .amount-wrap { flex: 1 1 auto; }
+  .line-row .amt { text-align: right; font-family: var(--mono); }
   .line-row select { flex: 0 0 130px; }
   .pct-row { display: flex; gap: 8px; align-items: center; }
   .pct-row .who { flex: 1 1 auto; font-weight: 600; font-size: 14px; }
   .pct-row input { flex: 0 0 110px; text-align: right; font-family: var(--mono); }
-  @media (max-width: 420px) { .line-row .amt, .line-row select { flex-basis: 108px; } }
+  @media (max-width: 420px) {
+    .line-row .amount-wrap { flex-basis: 130px; }
+    .line-row select + .amount-wrap { flex-basis: auto; }
+    .line-row select { flex-basis: 108px; }
+  }
+
+  /* ── A money box: the currency code sits inside, in front of the figure ──
+     From finance-tracker (.amount-wrap / .amount-affix), minus the metal
+     suffix and the `=` button Split Bill does not have. */
+  .amount-wrap { position: relative; display: flex; align-items: center; }
+  .amount-wrap > input { flex: 1 1 auto; min-width: 0; }
+  .amount-affix {
+    position: absolute; left: 13px;
+    font-size: 11px; font-weight: 700; color: var(--text-muted);
+    letter-spacing: 0.03em; line-height: 1; white-space: nowrap; pointer-events: none;
+  }
+  .amount-wrap.has-prefix > input { padding-left: calc(var(--amt-affix, 0px) + 20px); }
 
   /* One line under the editor that says whether the bill adds up. */
   .reconcile {
