@@ -8,13 +8,29 @@
 import { executeScript, fetchall, withConn } from "../db";
 import { MIGRATIONS } from "../migrations";
 
-/** Raised when one migration fails; the runner stops there, nothing of it kept. */
+/** Postgres's message plus its SQLSTATE, or the thrown value as text. */
+function describe(e: unknown): string {
+  const x = e as { message?: unknown; code?: unknown } | null;
+  const msg = typeof x?.message === "string" && x.message ? x.message : String(e);
+  return typeof x?.code === "string" && /^[0-9A-Z]{5}$/.test(x.code) ? `${msg} [${x.code}]` : msg;
+}
+
+/**
+ * Raised when one step fails; the runner stops there, nothing of it kept.
+ * `migration` is the file name, or BOOKKEEPING when the schema_migrations
+ * table itself could not be created or read.
+ */
 export class MigrationError extends Error {
+  readonly detail: string;
   constructor(readonly migration: string, readonly cause: unknown) {
-    super(`migration ${migration} failed: ${(cause as Error)?.message ?? String(cause)}`);
+    const detail = describe(cause);
+    super(`migration ${migration} failed: ${detail}`);
     this.name = "MigrationError";
+    this.detail = detail;
   }
 }
+
+export const BOOKKEEPING = "schema_migrations";
 
 /** Any fixed key: serialises runners, so two clicks at once never race. */
 const LOCK_KEY = 7_311_742_001;
@@ -27,10 +43,15 @@ const LOCK_KEY = 7_311_742_001;
  * that exists without its bookkeeping rows is adopted rather than refused.
  */
 export async function runMigrations(): Promise<string[]> {
-  await executeScript(
-    "CREATE TABLE IF NOT EXISTS schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
-  );
-  const done = new Set((await fetchall("SELECT filename FROM schema_migrations")).map((r) => String(r[0])));
+  let done: Set<string>;
+  try {
+    await executeScript(
+      "CREATE TABLE IF NOT EXISTS schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+    );
+    done = new Set((await fetchall("SELECT filename FROM schema_migrations")).map((r) => String(r[0])));
+  } catch (e) {
+    throw new MigrationError(BOOKKEEPING, e);
+  }
   const applied: string[] = [];
   for (const name of Object.keys(MIGRATIONS).sort()) {
     if (done.has(name)) continue;
