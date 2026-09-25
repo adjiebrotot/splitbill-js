@@ -148,6 +148,22 @@ describe("drafts", () => {
     expect(d.payer).toBe("1");
   });
 
+  it("an unknown name stays on its line, so the form can add that person there", () => {
+    const d = draftFromChat({ description: "x", date: null, currency: null, payer: "Zed", mode: "items", total_expr: null, people: [], percents: [],
+      items: [{ name: "a", amount_expr: "100", people: ["Zed", "Bob"] }, { name: "b", amount_expr: "50", people: [] }, { name: "c", amount_expr: "20", people: ["semua"] }],
+      adjustments: [] }, ctx);
+    expect(d.payer_unknown).toBe("Zed");
+    expect(d.items!.map((i) => [i.unknown ?? [], !!i.everyone])).toEqual([[["Zed"], false], [[], true], [[], true]]);
+    const e = draftFromChat({ description: "x", date: null, currency: null, payer: null, mode: "even", total_expr: "90", people: ["me", "Yan", "Zed"], percents: [],
+      items: [], adjustments: [] }, ctx, "chat", "90 split with Yan and Zed");
+    expect(e.participants!.map((p) => p.member)).toEqual(["1"]);
+    expect(e.participants_unknown).toEqual([{ name: "Yan" }, { name: "Zed" }]);
+    expect(e.participants_everyone).toBeUndefined();
+    const r = draftFromReceipt({ merchant: "W", currency: null, items: [{ name: "Ikan", qty: 1, amount: "10" }, { name: "Nasi", qty: 1, amount: "5" }], total: null },
+      null, ctx);
+    expect(r.items!.every((i) => i.everyone && !i.unknown)).toBe(true);
+  });
+
   it("receipt: printed total kept as the receipt total, caption assignments applied", () => {
     const d = draftFromReceipt(
       { merchant: "Warung", date: "2026-09-21", currency: null, items: [{ name: "Ikan", qty: 1, amount: "185.000" }, { name: "Udang", qty: 2, amount: "240.000" }],

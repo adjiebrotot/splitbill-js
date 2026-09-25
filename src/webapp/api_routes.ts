@@ -8,6 +8,7 @@
 import * as A from "../services/actions";
 import * as U from "../services/user_service";
 import { ENGINE_VERSION } from "../engine";
+import { aiConfigured } from "../services/llm_client";
 import { normalizeLang } from "../i18n";
 import { err, type Result } from "../errors";
 import {
@@ -58,7 +59,10 @@ const ROUTES: Record<string, Handler> = {
       if (!me) throw new A.__AuthError();
       const data: Record<string, unknown> = { me, engine_version: ENGINE_VERSION };
       if (page === "home") data.groups = await A.listMyGroups({ user_id: me.user_id });
-      if (page === "group") data.group = await A.getGroupView({ user_id: me.user_id, group_id: ctx.qp.get("id") });
+      if (page === "group") {
+        data.group = await A.getGroupView({ user_id: me.user_id, group_id: ctx.qp.get("id") });
+        data.ai = aiConfigured();
+      }
       if (page === "join") data.invite = await A.peekInvite({ user_id: me.user_id, code: ctx.qp.get("code") });
       return data;
     });

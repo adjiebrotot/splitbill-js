@@ -39,6 +39,9 @@
     if (S.view.is_owner) return true;
     return isTravel() && b.created_by === S.me.user_id;
   };
+  S.canAddMember = function () {
+    return !S.offline && isOpen() && S.view.is_owner;
+  };
   S.canRecord = function (fromId, toId) {
     if (S.offline) return false;
     if (S.view.is_owner) return true;
@@ -51,36 +54,48 @@
   // ── render ──
   function render() {
     var g = G();
+    var owner = S.view.is_owner && !S.offline;
     document.title = g.name + ' · Split Bill';
     $('g-name').textContent = g.name;
-    $('g-chips').innerHTML =
-      '<span class="chip">' + esc(t(g.kind === 'travel' ? 'kind.travel' : 'kind.one_off')) + '</span> ' +
-      (g.status === 'settled'
-        ? '<span class="chip chip-settled">' + esc(t('status.settled')) + '</span>'
-        : '<span class="chip chip-open">' + esc(t('status.not_settled')) + '</span>');
+    $('g-chips').innerHTML = g.status === 'settled'
+      ? '<span class="chip chip-settled">' + esc(t('status.settled')) + '</span>'
+      : '<span class="chip chip-open">' + esc(t('status.not_settled')) + '</span>';
 
     var miss = $('missing-banner');
-    if (!S.view.complete && S.view.missing.length) {
+    // A missing rate is fetched, not asked for; the banner is only for a
+    // provider that could not answer.
+    if (!S.view.complete && S.view.missing.length && isOpen() && !S.offline && !S.filling) {
+      S.filling = true;
+      miss.hidden = true;
+      api('rate/fill', { body: { group_id: GID } }).then(function (r) {
+        if (r.ok && r.data.added) return S.reload().then(function () { S.filling = false; });
+        S.filling = 'failed';
+        render();
+      });
+    } else if (!S.view.complete && S.view.missing.length && S.filling !== true) {
       var m0 = S.view.missing[0];
-      miss.textContent = t('rate.missing_banner', m0.currency, fmtDate(m0.date));
+      miss.innerHTML = esc(t('rate.missing_banner', m0.currency, fmtDate(m0.date))) +
+        (owner && isOpen() ? ' <button type="button" class="btn btn-ghost btn-compact" id="banner-add-rate">+ ' + esc(t('rate.add')) + '</button>' : '');
       miss.hidden = false;
     } else miss.hidden = true;
 
-    renderBalances();
+    $('btn-add-bill').hidden = !S.canAddBill();
+    $('btn-rates').hidden = !isTravel();
+    $('btn-manage').hidden = !owner;
     renderBills();
+    renderBalances();
     renderPayments();
     renderMembers();
     renderRates();
-    $('card-danger').hidden = !S.view.is_owner || S.offline;
-    $('btn-currency').hidden = !(S.view.is_owner && isTravel() && isOpen() && !S.offline);
-    $('btn-tg-bind').hidden = !(S.view.is_owner && isTravel() && !S.offline);
-    $('btn-add-bill').hidden = !S.canAddBill();
+    renderManage();
     $('btn-add-payment').hidden = S.offline || !isOpen();
-    $('btn-add-member').hidden = S.offline || !S.view.is_owner || !isOpen();
+    $('btn-add-member').hidden = !S.canAddMember();
   }
 
   function renderBalances() {
     var v = S.view;
+    // Nothing to balance yet: the card would only say so.
+    $('card-balances').hidden = !v.bills.length && !v.payments.length;
     var mine = null;
     for (var i = 0; i < v.balances.length; i++) if (v.balances[i].id === v.me) mine = v.balances[i];
     var tiles = '<div class="tool-tile"><div class="lbl">' + esc(t('bal.spent')) + '</div><div class="val">' + esc(gmoney(v.spent)) + '</div></div>';
@@ -135,6 +150,7 @@
     $('owner-actions').hidden = !acts;
   }
 
+  /* A row opens its bill: the editor when you may change it, else read-only. */
   function renderBills() {
     var v = S.view;
     var wrap = $('bills-wrap');
@@ -146,16 +162,10 @@
       var total = money(b.total, b.currency, b.dp);
       var conv = b.currency !== G().currency && b.converted != null ? '<div class="tool-sub">' + esc(gmoney(b.converted)) + '</div>' : '';
       var err = b.error ? '<div class="tool-sub neg">' + esc(errMsg(b.error.code, b.error.params)) + '</div>' : '';
-      var acts = S.canEditBill(b)
-        ? '<div class="tool-row-actions">' +
-            '<button type="button" class="btn btn-ghost btn-compact btn-icon" data-edit="' + esc(b.id) + '" aria-label="' + esc(t('common.edit')) + '">' + icon('pencil') + '</button>' +
-            '<button type="button" class="btn btn-danger btn-compact btn-icon" data-del="' + esc(b.id) + '" aria-label="' + esc(t('common.delete')) + '">' + icon('trash') + '</button></div>'
-        : '<div class="tool-row-actions"><button type="button" class="btn btn-ghost btn-compact btn-icon" data-view="' + esc(b.id) + '" aria-label="' + esc(t('bill.view')) + '">' + icon('eye') + '</button></div>';
-      return '<tr><td>' + esc(b.description) +
-        '<div class="tool-sub">' + esc(fmtDate(b.date)) + ' · ' + esc(t('bill.paid_by_x', nameOf(b.payer))) + ' · ' + esc(t('mode.' + b.mode)) + '</div>' + err + '</td>' +
+      return '<tr class="row-link" tabindex="0" data-bill="' + esc(b.id) + '"><td>' + esc(b.description) +
+        '<div class="tool-sub">' + esc(fmtDate(b.date)) + ' · ' + esc(t('bill.paid_by_x', nameOf(b.payer))) + '</div>' + err + '</td>' +
         '<td class="num">' + esc(total) + conv + '</td>' +
-        '<td class="num">' + (mine == null ? '<span class="muted">-</span>' : esc(money(mine, b.currency, b.dp, { plain: true }))) + '</td>' +
-        '<td class="act">' + acts + '</td></tr>';
+        '<td class="num">' + (mine == null ? '<span class="muted">-</span>' : esc(money(mine, b.currency, b.dp, { plain: true }))) + '</td></tr>';
     }).join('');
   }
 
@@ -179,26 +189,29 @@
     var v = S.view;
     var owner = v.is_owner && !S.offline;
     $('mem-body').innerHTML = v.members.map(function (m) {
-      var chips = [];
-      if (m.user_id === G().owner) chips.push('<span class="chip">' + esc(t('mem.owner')) + '</span>');
-      if (!m.user_id) chips.push('<span class="chip chip-muted">' + esc(t('mem.no_app')) + '</span>');
-      if (!m.active) chips.push('<span class="chip chip-muted">' + esc(t('mem.inactive')) + '</span>');
+      var sub = [];
+      if (m.username) sub.push('@' + esc(m.username));
+      if (m.user_id === G().owner) sub.push(esc(t('mem.owner')));
+      if (!m.user_id) sub.push(esc(t('mem.no_app')));
+      if (!m.active) sub.push(esc(t('mem.inactive')));
       var acts = [];
       if (owner || m.id === v.me) acts.push('<button type="button" class="btn btn-ghost btn-compact btn-icon" data-mren="' + esc(m.id) + '" aria-label="' + esc(t('mem.rename')) + '">' + icon('pencil') + '</button>');
-      if (owner && !m.user_id) acts.push('<button type="button" class="btn btn-ghost btn-compact btn-icon" data-mlink="' + esc(m.id) + '" aria-label="' + esc(t('mem.link')) + '" title="' + esc(t('mem.link')) + '">' + icon('link') + '</button>');
+      if (owner && !m.user_id && isTravel()) acts.push('<button type="button" class="btn btn-ghost btn-compact btn-icon" data-mlink="' + esc(m.id) + '" aria-label="' + esc(t('mem.link')) + '" title="' + esc(t('mem.link')) + '">' + icon('link') + '</button>');
       if (owner && !m.active) acts.push('<button type="button" class="btn btn-ghost btn-compact btn-icon" data-mact="' + esc(m.id) + '" aria-label="' + esc(t('mem.reactivate')) + '">' + icon('undo') + '</button>');
       if (owner && m.active && m.user_id !== G().owner) acts.push('<button type="button" class="btn btn-danger btn-compact btn-icon" data-mdel="' + esc(m.id) + '" aria-label="' + esc(t('mem.remove')) + '">' + icon('trash') + '</button>');
-      return '<tr><td>' + esc(nameOf(m.id)) + (m.username ? '<div class="tool-sub">@' + esc(m.username) + '</div>' : '') + '</td>' +
-        '<td>' + chips.join(' ') + '</td>' +
+      return '<tr><td' + (m.active ? '' : ' class="muted"') + '>' + esc(nameOf(m.id)) + (sub.length ? '<div class="tool-sub">' + sub.join(' · ') + '</div>' : '') + '</td>' +
         '<td class="act"><div class="tool-row-actions">' + acts.join('') + '</div></td></tr>';
     }).join('');
+    $('btn-invite').hidden = !(isTravel() && G().invite_code && !S.offline);
+  }
 
-    var box = $('invite-box');
-    if (isTravel() && G().invite_code && !S.offline) {
-      box.hidden = false;
-      $('invite-link').value = location.origin + '/app/join/' + G().invite_code;
-      $('invite-reset').hidden = !v.is_owner;
-    } else box.hidden = true;
+  function renderManage() {
+    var owner = S.view.is_owner && !S.offline;
+    // A one-off is named after its bill, so only a trip has a name of its own.
+    $('btn-rename').hidden = !(owner && isTravel());
+    $('btn-currency').hidden = !(owner && isTravel() && isOpen());
+    $('btn-tg-bind').hidden = !(owner && isTravel());
+    $('invite-reset').hidden = !(owner && isTravel() && G().invite_code);
   }
 
   /* "16250.5" -> "16,250.5" / "16.250,5". */
@@ -217,8 +230,6 @@
   S.rateText = rateText;
 
   function renderRates() {
-    var card = $('card-rates');
-    card.hidden = !isTravel();
     if (!isTravel()) return;
     var v = S.view;
     $('btn-add-rate').hidden = S.offline || !v.is_owner || !isOpen();
@@ -273,6 +284,15 @@
   S.gid = GID;
 
   // ── events ──
+  function openBillRow(ev) {
+    var tr = ev.target.closest('tr[data-bill]');
+    if (!tr || !S.view || !window.openBill) return;
+    var b = S.view.bills.filter(function (x) { return x.id === tr.dataset.bill; })[0];
+    if (b) window.openBill(b.id, !S.canEditBill(b));
+  }
+  $('bills-body').addEventListener('click', openBillRow);
+  $('bills-body').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') openBillRow(ev); });
+
   document.addEventListener('click', function (ev) {
     var el = ev.target.closest('button');
     if (!el || !S.view) return;
@@ -285,13 +305,15 @@
       confirmDialog(t('grp.reopen_confirm'), { title: t('grp.reopen'), okLabel: t('grp.reopen'), danger: false }).then(function (yes) {
         if (yes) S.act('reopen', {}, t('grp.reopened_toast'), el);
       });
+    } else if (el.id === 'banner-add-rate') {
+      if (window.openRate) window.openRate();
     } else if (d.paid) {
       S.act('transfer/paid', { transfer_id: d.paid }, t('xfer.paid_toast'), el);
     } else if (d.unpaid) {
       S.act('transfer/unpaid', { transfer_id: d.unpaid }, null, el);
     } else if (d.del) {
       confirmDialog(t('bill.delete_confirm'), { okLabel: t('common.delete') }).then(function (yes) {
-        if (yes) S.act('bill/delete', { bill_id: d.del }, t('bill.deleted'));
+        if (yes) S.act('bill/delete', { bill_id: d.del }, t('bill.deleted')).then(function (r) { if (r.ok) closeModal('modal-bill'); });
       });
     } else if (d.delpay) {
       confirmDialog(t('pay.delete_confirm'), { okLabel: t('common.delete') }).then(function (yes) {
@@ -320,29 +342,44 @@
     }
   });
 
+  $('btn-add-bill').addEventListener('click', function () { if (window.openBill) window.openBill(null); });
   $('btn-add-member').addEventListener('click', function () { openMember('add', null); });
   $('btn-add-payment').addEventListener('click', function () { openPayment(); });
   $('btn-add-rate').addEventListener('click', function () { if (window.openRate) window.openRate(); });
-  $('invite-copy').addEventListener('click', function () {
-    copyText($('invite-link').value);
+  $('btn-rates').addEventListener('click', function () { openModal('modal-rates'); });
+  $('btn-details').addEventListener('click', function () { openModal('modal-details'); });
+  $('btn-manage').addEventListener('click', function () { openModal('modal-manage'); });
+
+  /* One tap: the share sheet on a phone, else the link is copied. */
+  $('btn-invite').addEventListener('click', function () {
+    var url = location.origin + '/app/join/' + G().invite_code;
+    if (navigator.share && /Mobi|Android/i.test(navigator.userAgent)) {
+      navigator.share({ title: G().name, url: url }).catch(function () {});
+    } else copyText(url, t('grp.invite_copied'));
   });
-  $('invite-reset').addEventListener('click', function (ev) {
+
+  /* Manage lists rare actions; each closes it and does its own thing. */
+  function fromManage(fn) {
+    return function (ev) { closeModal('modal-manage'); fn(ev); };
+  }
+  $('invite-reset').addEventListener('click', fromManage(function () {
     confirmDialog(t('mem.invite_reset_confirm'), { okLabel: t('mem.invite_reset'), danger: false }).then(function (yes) {
-      if (yes) S.act('group/invite-reset', {}, null, ev.target.closest('button'));
+      if (yes) S.act('group/invite-reset', {}, t('common.saved'));
     });
-  });
-  $('btn-rename').addEventListener('click', function () { openMember('group', null); });
+  }));
+  $('btn-rename').addEventListener('click', fromManage(function () { openMember('group', null); }));
   $('btn-tg-bind').addEventListener('click', function (ev) {
     var btn = ev.currentTarget;
     setBusy(btn, true);
     api('telegram/bind-code', { body: { group_id: GID } }).then(function (r) {
       setBusy(btn, false);
       if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+      closeModal('modal-manage');
       window.open(r.data.url, '_blank', 'noopener');
       showToast(t('tg.bind_hint'));
     });
   });
-  $('btn-delete-group').addEventListener('click', function () {
+  $('btn-delete-group').addEventListener('click', fromManage(function () {
     confirmDialog(t('grp.delete_confirm', G().name), { okLabel: t('grp.delete') }).then(function (yes) {
       if (!yes) return;
       api('group/delete', { body: { group_id: GID } }).then(function (r) {
@@ -350,10 +387,18 @@
         location.href = '/app';
       });
     });
-  });
+  }));
 
-  function copyText(txt) {
-    var done = function () { showToast(t('common.copied')); };
+  /* A one-off is its bill. Left without one (closed before saving, or its
+     bill deleted), it is gone too: nothing was split. */
+  S.discardEmpty = function () {
+    var v = S.view;
+    if (!v || isTravel() || !isOpen() || !v.is_owner || S.offline || v.bills.length || v.payments.length) return;
+    api('group/delete', { body: { group_id: GID } }).then(function () { location.href = '/app'; });
+  };
+
+  function copyText(txt, msg) {
+    var done = function () { showToast(msg || t('common.copied')); };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(txt).then(done, function () { fallback(); });
     } else fallback();
@@ -437,9 +482,13 @@
       if (r.status === 404) setTimeout(function () { location.href = '/app'; }, 1200);
       return;
     }
+    S.ai = r.data.ai !== false;
     setView(r.data, r.offline, r.at);
-    if (location.hash === '#add-bill' && S.canAddBill()) {
-      history.replaceState(null, '', location.pathname);
+    var addHash = location.hash === '#add-bill';
+    if (addHash) history.replaceState(null, '', location.pathname);
+    // An empty one-off only exists to take its bill: open the editor straight away.
+    var emptyOneOff = !isTravel() && !S.view.bills.length;
+    if ((addHash || emptyOneOff) && S.canAddBill() && !/^#draft=/.test(location.hash)) {
       if (window.openBill) window.openBill(null);
     }
     // "Edit in app" from Telegram: open the saved draft in the bill form.
@@ -542,6 +591,7 @@
     return Object.keys(set).sort();
   }
 
+  /* One rate per currency in use, each prefilled with today's market rate. */
   function renderRates() {
     var to = $('ccy-new').value;
     var need = used().filter(function (c) { return c !== to; });
@@ -550,9 +600,20 @@
         '<input type="text" class="ccy-rate" data-c="' + esc(c) + '" inputmode="decimal" aria-label="' + esc(c) + '">' +
         '<span class="muted">' + esc(to) + '</span></div>';
     }).join('');
+    need.forEach(function (c) {
+      api('rate/auto', { body: { group_id: S.gid, currency: c, to: to } }).then(function (r) {
+        var inp = $('ccy-rates').querySelector('.ccy-rate[data-c="' + c + '"]');
+        if (!r.ok || !inp || inp.value || $('ccy-new').value !== to) return;
+        // Stored big side first; this box always reads "1 <c> = ? <to>".
+        var v = r.data.inverted ? 1 / Number(r.data.rate) : Number(r.data.rate);
+        inp.value = localNum(Number(v.toPrecision(10)).toString());
+      });
+    });
   }
+  function localNum(text) { return window.__LANG__ === 'id' ? String(text).replace('.', ',') : String(text); }
 
   $('btn-currency').addEventListener('click', function () {
+    closeModal('modal-manage');
     fillCurrencySelect($('ccy-new'), G().currency);
     renderRates();
     openModal('modal-ccy', { initialFocus: '#ccy-new' });

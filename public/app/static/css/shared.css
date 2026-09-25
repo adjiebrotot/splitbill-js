@@ -1180,6 +1180,44 @@
   .photo-pick:hover { background: var(--bg); }
   .photo-thumb { max-width: 100%; max-height: 180px; border-radius: 10px; display: block; margin: 0 auto; }
 
+  .photo-pick.busy { pointer-events: none; opacity: 0.55; }
+
+  /* ── Split page layout: most used first and full width, the rest after. ──
+     The page title gives up width before its actions do. */
+  .settings-header .head-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .head-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
+  /* A page-level action between cards spaces like a card. */
+  .page-action { margin-bottom: 14px; }
+  /* Two secondary cards side by side; one column once they would squeeze. */
+  .tool-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; margin-bottom: 14px; }
+  .tool-cols > .tool-card { margin-bottom: 0; min-width: 0; }
+  @media (max-width: 760px) { .tool-cols { grid-template-columns: 1fr; } }
+  /* Rare actions, one per row, in a modal. */
+  .btn-col { display: flex; flex-direction: column; gap: 10px; }
+  .modal-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+  /* A modal with no action row still ends 20px under its last block. */
+  .modal-card > .modal-body:last-child { padding-bottom: 24px; }
+
+  /* "+" at the end of a chip row: add a person right there. */
+  .mchip-add { min-width: 40px; font-size: 16px; line-height: 1; }
+  .mchip-new { border-style: dashed; }
+  .chips-lbl { font-size: 13px; color: var(--text-muted); align-self: center; }
+  .mchip-input {
+    width: 170px; min-height: 32px; padding: 5px 11px; border-radius: 999px;
+    border: 1.5px solid var(--primary-dark); font-size: 13px;
+  }
+  @media (pointer: coarse) { .mchip-input { min-height: 40px; } }
+
+  /* Date, currency and receipt total: folded until needed. */
+  .more > summary {
+    display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+    font-size: 13px; font-weight: 600; color: var(--text-muted);
+  }
+  .more > summary::-webkit-details-marker { display: none; }
+  .more > summary .icon { transition: transform 0.15s; }
+  .more[open] > summary .icon { transform: rotate(180deg); }
+  .more > summary + * { margin-top: var(--gap); }
+
   /* ── Admin console (/admin): a database cell holds anything, one line of it. ── */
   .tool-tbl td.clip { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

@@ -1,8 +1,8 @@
-/* home.js: "My splits" list, new one-off / trip, email verification. */
+/* home.js: "My splits" list, Add Bill (a one-off, straight into its bill),
+ * New Trip, email verification. */
 (function () {
   var ME = null;
   var OFFLINE = false;
-  var newKind = 'one_off';
   var people = [];
 
   function renderList(list) {
@@ -87,19 +87,29 @@
     renderPeople();
   });
 
-  function openNew(kind) {
+  function openTrip() {
     if (OFFLINE) return showToast(errMsg('offline'), 'error');
-    newKind = kind;
     people = [];
     renderPeople();
-    document.getElementById('new-title').textContent = kind === 'travel' ? t('home.new_trip') : t('home.new_oneoff');
     document.getElementById('new-name').value = '';
-    document.getElementById('new-ccy-label').textContent = kind === 'travel' ? t('new.settle_currency') : t('new.currency');
     fillCurrencySelect(document.getElementById('new-currency'), (ME && ME.default_currency) || 'IDR');
     openModal('modal-new', { initialFocus: '#new-name' });
   }
-  document.getElementById('new-oneoff').addEventListener('click', function () { openNew('one_off'); });
-  document.getElementById('new-trip').addEventListener('click', function () { openNew('travel'); });
+  document.getElementById('new-trip').addEventListener('click', openTrip);
+
+  /* A one-off needs nothing up front: it is named after its bill, people are
+     added in the bill, and leaving before saving leaves nothing behind. */
+  document.getElementById('new-bill').addEventListener('click', function (ev) {
+    if (OFFLINE) return showToast(errMsg('offline'), 'error');
+    var btn = ev.currentTarget;
+    setBusy(btn, true);
+    api('groups', {
+      body: { kind: 'one_off', name: t('home.new_bill_name'), currency: (ME && ME.default_currency) || 'IDR', members: [] },
+    }).then(function (r) {
+      if (!r.ok) { setBusy(btn, false); return showToast(errMsg(r.code, r.params), 'error'); }
+      location.href = '/app/g/' + r.data.group_id + '#add-bill';
+    });
+  });
 
   document.getElementById('new-form').addEventListener('submit', function (ev) {
     ev.preventDefault();
@@ -108,7 +118,7 @@
     setBusy(btn, true);
     api('groups', {
       body: {
-        kind: newKind,
+        kind: 'travel',
         name: document.getElementById('new-name').value,
         currency: document.getElementById('new-currency').value,
         members: people,
@@ -116,7 +126,7 @@
     }).then(function (r) {
       setBusy(btn, false);
       if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
-      location.href = '/app/g/' + r.data.group_id + (newKind === 'one_off' ? '#add-bill' : '');
+      location.href = '/app/g/' + r.data.group_id;
     });
   });
 

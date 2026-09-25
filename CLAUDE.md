@@ -21,6 +21,10 @@ Every number comes from `src/engine/` (pure, no I/O). Server, browser preview (`
 - Change the engine → run `node scripts/build_engine.mjs` (bundle is checked in; test fails when stale). Bump `ENGINE_VERSION` when a number could change.
 - New invariant or edge case → add it to `tests/unit/engine_*.test.ts` and, if it needs the DB, `tests/unit/db_actions.test.ts` / `scripts/integrity_harness.ts`.
 
+## Automate before asking
+
+If code can do it, do it; an error is only for what code cannot decide. A trip bill or payment in a currency with no rate gets the market rate on save (`_autoRatesFor` fetches BEFORE `write()`, `_addAutoRates` inserts inside it, source `auto`, first rate of a currency is "from the start"); the page calls `rate/fill` for any gap left. A one-off is named after its bill (`saveBill`), and one left without a bill is deleted (client on close, `cleanup()` after a day).
+
 ## Architecture: single hub
 
 All media (web API, Telegram, future ones) call `src/services/actions.ts`. No route or bot handler touches the DB or a service directly for a business operation. Actions return `{ ok, data }` or `{ ok: false, code, params }`; `code` maps to `err.<code>` in `src/i18n.ts`.
@@ -31,7 +35,7 @@ web / Telegram → actions.ts → repo.ts (one-query group load) + ledger.ts →
 
 ## AI reads, code computes
 
-Chat and receipt photos go through `src/services/ai_parse.ts`. The models (OpenRouter, `llm_client.ts`) only COPY names and numbers; amounts are evaluated exactly by `amount_expr.ts` / the engine's `parseAmount`, names matched to members by code. AI output is always a draft the person saves through the normal bill form. Unknown names are reported, never created. Prompt or parsing change → run `scripts/parse_harness.ts` (live, costs money) and keep `tests/unit/ai_parse.test.ts` green.
+Chat and receipt photos go through `src/services/ai_parse.ts`. The models (OpenRouter, `llm_client.ts`) only COPY names and numbers; amounts are evaluated exactly by `amount_expr.ts` / the engine's `parseAmount`, names matched to members by code. AI output is always a draft the person saves through the normal bill form. Unknown names are reported, never created by the AI: the draft keeps them per line (`unknown`, `payer_unknown`, `participants_unknown`) and the form offers one-tap `+ Name`, which adds that person through `member/add` and puts them back where the message placed them. A line meant for everyone carries `everyone: true`, so a person added later joins it. Prompt or parsing change → run `scripts/parse_harness.ts` (live, costs money) and keep `tests/unit/ai_parse.test.ts` green.
 
 ## Telegram is a medium, not a second app
 

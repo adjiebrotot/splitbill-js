@@ -83,8 +83,8 @@ export const STRINGS: Record<string, Entry> = {
   // ── home ──
   "home.title": { en: "My splits", id: "Patunganku" },
   "home.splits": { en: "Splits", id: "Patungan" },
-  "home.new_oneoff": { en: "New One-off", id: "Patungan Baru" },
   "home.new_trip": { en: "New Trip", id: "Perjalanan Baru" },
+  "home.new_bill_name": { en: "New bill", id: "Tagihan baru" },
   "home.col_name": { en: "Name", id: "Nama" },
   "home.col_spent": { en: "Spent", id: "Total" },
   "home.col_mine": { en: "My balance", id: "Saldoku" },
@@ -110,6 +110,8 @@ export const STRINGS: Record<string, Entry> = {
 
   // ── group ──
   "grp.manage": { en: "Manage", id: "Kelola" },
+  "grp.invite": { en: "Invite", id: "Undang" },
+  "grp.invite_copied": { en: "Invite link copied.", id: "Tautan undangan tersalin." },
   "grp.rename": { en: "Rename", id: "Ganti Nama" },
   "grp.change_currency": { en: "Change Currency", id: "Ganti Mata Uang" },
   "grp.delete": { en: "Delete Split", id: "Hapus Patungan" },
@@ -141,6 +143,7 @@ export const STRINGS: Record<string, Entry> = {
   "bal.even": { en: "Even", id: "Impas" },
   "bal.transfers": { en: "Who pays whom", id: "Siapa bayar siapa" },
   "bal.transfers_tip": { en: "The fewest payments that settle everyone.", id: "Jumlah transfer paling sedikit agar semua impas." },
+  "bal.details": { en: "Details", id: "Rincian" },
   "bal.all_even": { en: "Everyone is even.", id: "Semua sudah impas." },
   "bal.no_bills": { en: "No bills yet.", id: "Belum ada tagihan." },
   "xfer.mark_paid": { en: "Mark Paid", id: "Tandai Lunas" },
@@ -186,6 +189,7 @@ export const STRINGS: Record<string, Entry> = {
   "bill.saved": { en: "Bill saved.", id: "Tagihan tersimpan." },
   "bill.deleted": { en: "Bill deleted.", id: "Tagihan dihapus." },
   "bill.delete_confirm": { en: "Delete this bill?", id: "Hapus tagihan ini?" },
+  "bill.reset": { en: "Reset", id: "Ulangi" },
   "mode.items": { en: "By item", id: "Per item" },
   "mode.even": { en: "Evenly", id: "Rata" },
   "mode.percent": { en: "By percent", id: "Per persen" },
@@ -207,8 +211,8 @@ export const STRINGS: Record<string, Entry> = {
   "input.caption_ph": { en: "Paid by Ali, drinks for Bob", id: "Dibayar Ali, minuman untuk Bob" },
   "input.read": { en: "Read", id: "Baca" },
   "input.reading": { en: "Reading...", id: "Membaca..." },
-  "input.read_done": { en: "Check the form, then save.", id: "Periksa formulir, lalu simpan." },
   "input.unknown": { en: "Not in this split: {0}. Add them under Members or pick someone else.", id: "Tidak ada di tagihan ini: {0}. Tambahkan di Anggota atau pilih orang lain." },
+  "input.unknown_add": { en: "Not in this split yet:", id: "Belum ada di patungan ini:" },
 
   // ── payments ──
   "pay.title_list": { en: "Payments", id: "Pembayaran" },
@@ -228,6 +232,7 @@ export const STRINGS: Record<string, Entry> = {
   // ── members ──
   "mem.title": { en: "Members", id: "Anggota" },
   "mem.add": { en: "Add Member", id: "Tambah Anggota" },
+  "mem.add_person": { en: "Add person", id: "Tambah orang" },
   "mem.name": { en: "Name", id: "Nama" },
   "mem.you": { en: "you", id: "kamu" },
   "mem.owner": { en: "Owner", id: "Pemilik" },
@@ -243,8 +248,6 @@ export const STRINGS: Record<string, Entry> = {
   "mem.link_to": { en: "Who is this?", id: "Siapa orang ini?" },
   "mem.link_none": { en: "Nobody new has joined yet.", id: "Belum ada anggota baru yang bergabung." },
   "mem.linked": { en: "Linked. Their history moved over.", id: "Terhubung. Riwayatnya sudah dipindahkan." },
-  "mem.invite": { en: "Invite link", id: "Tautan undangan" },
-  "mem.invite_tip": { en: "Anyone with this link can join with their own account.", id: "Siapa pun yang punya tautan ini bisa bergabung dengan akunnya sendiri." },
   "mem.invite_reset": { en: "New Link", id: "Tautan Baru" },
   "mem.invite_reset_confirm": { en: "Make a new link? The old one stops working.", id: "Buat tautan baru? Tautan lama tidak berlaku lagi." },
   "join.subtitle": { en: "You are invited to this trip", id: "Kamu diundang ke perjalanan ini" },
@@ -269,7 +272,7 @@ export const STRINGS: Record<string, Entry> = {
   "rate.saved": { en: "Rate saved.", id: "Kurs tersimpan." },
   "rate.delete_confirm": { en: "Delete this rate?", id: "Hapus kurs ini?" },
   "rate.missing_banner": { en: "No {0} rate for {1}. The owner adds it under Rates before settling.", id: "Belum ada kurs {0} untuk {1}. Pemilik menambahkannya di Kurs sebelum penyelesaian." },
-  "rate.missing_for": { en: "No {0} rate for {1} yet. The owner adds it under Rates.", id: "Belum ada kurs {0} untuk {1}. Pemilik menambahkannya di Kurs." },
+  "rate.auto_on_save": { en: "The {0} market rate is added when you save.", id: "Kurs pasar {0} ditambahkan saat disimpan." },
 
   // ── reports ──
   "rpt.button": { en: "Report", id: "Laporan" },

@@ -6,7 +6,7 @@
  * The schema is dropped and re-migrated at the start of the run.
  */
 import { schemaUrl, resetSchema } from "../helpers/db";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
 const URL = process.env.TEST_DATABASE_URL;
 if (URL) {
@@ -34,7 +34,11 @@ describe.skipIf(!URL)("actions against Postgres", () => {
   const memberId = (v: Awaited<ReturnType<typeof view>>, name: string) => v.members.find((m) => m.name === name)!.id;
   const netOf = (v: Awaited<ReturnType<typeof view>>, name: string) => v.balances.find((b) => b.id === memberId(v, name))!.net;
 
+  // No real network: the market-rate provider is "down" unless a test says otherwise.
+  const offline = () => vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+
   beforeAll(async () => {
+    offline();
     db = await import("@/db");
     await resetSchema("t_actions");
     A = await import("@/services/actions");
@@ -43,6 +47,7 @@ describe.skipIf(!URL)("actions against Postgres", () => {
   });
 
   afterAll(async () => {
+    vi.unstubAllGlobals();
     await db?.closePool();
   });
 
@@ -198,6 +203,7 @@ describe.skipIf(!URL)("actions against Postgres", () => {
   });
 
   it("rates: coverage, dated rates, locked while settled, currency change", async () => {
+    // The market-rate provider is down (beforeAll): nothing is filled in automatically.
     const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Japan", currency: "IDR", members: ["Bob"] });
     let v = await view(g.group_id);
     const [ali, bob] = ["Ali", "Bob"].map((n) => memberId(v, n));
@@ -236,5 +242,59 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     expect(v.group.currency).toBe("JPY");
     expect(v.bills[0].converted).toBe(3000n);
     expect(v.balances.reduce((a, b) => a + b.net, 0n)).toBe(0n);
+  });
+
+  it("rates: a missing one is fetched on save, from the start, by any member", async () => {
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      asked.push(url);
+      const base = /base=([A-Z]{3})/.exec(url)![1];
+      const rates: Record<string, Record<string, number>> = { JPY: { IDR: 108.5 }, USD: { IDR: 16250 } };
+      return { json: async () => ({ success: true, rates: rates[base] ?? {} }) } as Response;
+    }));
+    const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Osaka", currency: "IDR", members: [] });
+    let v = await view(g.group_id);
+    await A.joinByInvite({ user_id: uid.bob, code: v.group.invite_code! });
+    v = await view(g.group_id);
+    const [ali, bob] = ["Ali", "Bob"].map((n) => memberId(v, n));
+    await A.saveBill({ user_id: uid.ali, group_id: g.group_id, description: "Ramen", date: "2026-09-05", currency: "JPY", mode: "even", payer: ali, total: "3000",
+      participants: [{ member: ali }, { member: bob }] });
+    v = await view(g.group_id);
+    expect(v.rates).toMatchObject([{ currency: "JPY", effective: "-infinity", rate: "108.5", inverted: false, source: "auto" }]);
+    expect(v.bills[0].converted).toBe(325500n);
+    expect(asked[0]).toContain("historical?date=2026-09-05");
+    // A covered currency asks nobody; a member who is not the owner still gets a rate.
+    const n = asked.length;
+    await A.saveBill({ user_id: uid.bob, group_id: g.group_id, description: "Tea", date: "2026-09-01", currency: "JPY", mode: "even", payer: bob, total: "500",
+      participants: [{ member: bob }] });
+    expect(asked.length).toBe(n);
+    await A.recordPayment({ user_id: uid.bob, group_id: g.group_id, from: ali, to: bob, currency: "USD", amount: "100", date: "2026-09-06" });
+    v = await view(g.group_id);
+    expect(v.rates.map((r) => r.currency).sort()).toEqual(["JPY", "USD"]);
+    expect(v.complete).toBe(true);
+    expect(v.balances.reduce((a, b) => a + b.net, 0n)).toBe(0n);
+    // Moving a rate to a dated one leaves no gap, so fillRates has nothing to add.
+    await A.setRate({ user_id: uid.ali, group_id: g.group_id, currency: "USD", effective: "2026-09-06", rate: "16000" });
+    await A.deleteRate({ user_id: uid.ali, group_id: g.group_id, currency: "USD", effective: "-infinity" });
+    expect(await A.fillRates({ user_id: uid.bob, group_id: g.group_id })).toEqual({ added: 0 });
+    offline();
+  });
+
+  it("one-off: named after its bill; one left empty is cleaned up", async () => {
+    const g = await A.createGroup({ user_id: uid.ali, kind: "one_off", name: "New bill", currency: "IDR", members: [] });
+    let v = await view(g.group_id);
+    const ali = memberId(v, "Ali");
+    const m = await A.addMember({ user_id: uid.ali, group_id: g.group_id, name: "Zed" });
+    await A.saveBill({ user_id: uid.ali, group_id: g.group_id, description: "Sate Padang", date: "2026-09-05", currency: "IDR", mode: "even", payer: ali, total: "50000",
+      participants: [{ member: ali }, { member: m.member_id }] });
+    v = await view(g.group_id);
+    expect(v.group.name).toBe("Sate Padang");
+
+    const empty = await A.createGroup({ user_id: uid.ali, kind: "one_off", name: "New bill", currency: "IDR", members: [] });
+    await db.execute("UPDATE groups SET created_at = NOW() - INTERVAL '2 days' WHERE group_id = ANY($1)", [[empty.group_id, g.group_id]]);
+    expect((await A.cleanup()).empty_one_offs).toBe(1);
+    const mine = (await A.listMyGroups({ user_id: uid.ali })).map((x) => x.group_id);
+    expect(mine).toContain(g.group_id);
+    expect(mine).not.toContain(empty.group_id);
   });
 });

@@ -11,8 +11,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="/app/static/css/shared.css?v=90f2868c">
-<script src="/app/static/js/i18n-all.js?v=22569b41"></script>
+<link rel="stylesheet" href="/app/static/css/shared.css?v=e41dd7c7">
+<script src="/app/static/js/i18n-all.js?v=678aaec8"></script>
 <script src="/app/static/js/boot.js?v=466484cf" data-page="home" data-auth="1"></script>
 </head>
 <body>
@@ -33,10 +33,11 @@
           <button type="button" class="btn btn-primary" id="verify-btn" data-i18n="verify.confirm">Confirm</button>
         </div>
       </div>
+      <!-- The one thing done most: a bill, straight away. -->
+      <button type="button" class="btn btn-primary btn-full page-action" id="new-bill"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-plus"></use></svg> <span data-i18n="bill.add">Add Bill</span></button>
       <section class="tool-card">
         <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-list"></use></svg> <span data-i18n="home.splits">Splits</span>
           <span class="tool-head-actions">
-            <button type="button" class="btn btn-ghost btn-compact" id="new-oneoff">+ <span data-i18n="home.new_oneoff">New One-off</span></button>
             <button type="button" class="btn btn-ghost btn-compact" id="new-trip">+ <span data-i18n="home.new_trip">New Trip</span></button>
           </span>
         </h2>
@@ -57,7 +58,7 @@
   <div class="modal-overlay" id="modal-new" role="dialog" aria-modal="true" aria-labelledby="new-title">
     <form class="modal-card" id="new-form" novalidate>
       <div class="modal-head">
-        <h2 class="modal-title" id="new-title"></h2>
+        <h2 class="modal-title" id="new-title" data-i18n="home.new_trip">New Trip</h2>
         <button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal('modal-new')" data-i18n-aria="common.close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-x"></use></svg></button>
       </div>
       <div class="modal-body">
@@ -66,7 +67,7 @@
           <input type="text" id="new-name" maxlength="80" required>
         </div>
         <div class="field">
-          <label for="new-currency"><span id="new-ccy-label" data-i18n="new.currency">Currency</span></label>
+          <label for="new-currency" data-i18n="new.settle_currency">Settle in</label>
           <select id="new-currency"></select>
         </div>
         <div class="field">
@@ -89,6 +90,6 @@
   <script src="/app/static/js/i18n.js?v=3c7c0ae8"></script>
   <script src="/app/static/js/topbar.js?v=87d85aba"></script>
   <script src="/app/static/js/currency.js?v=7e4d6b4b"></script>
-  <script src="/app/static/js/home.js?v=f1448825"></script>
+  <script src="/app/static/js/home.js?v=0b145138"></script>
 </body>
 </html>
