@@ -12,7 +12,9 @@
     setTableEmpty(wrap, '');
     body.innerHTML = list.map(function (g) {
       var kind = g.kind === 'travel' ? t('kind.travel') : t('kind.one_off');
-      var status = g.status === 'settled'
+      // A one-off has no Settle step: it is settled once nobody owes anybody.
+      var settled = g.status === 'settled' || (g.kind === 'one_off' && g.bills > 0 && g.owed === 0);
+      var status = settled
         ? '<span class="chip chip-settled">' + esc(t('status.settled')) + '</span>'
         : '<span class="chip chip-open">' + esc(t('status.open')) + '</span>';
       var net = BigInt(g.my_net);

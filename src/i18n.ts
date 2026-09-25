@@ -87,6 +87,7 @@ export const STRINGS: Record<string, Entry> = {
   // ── home ──
   "home.title": { en: "My splits", id: "Patunganku" },
   "home.splits": { en: "Splits", id: "Patungan" },
+  "home.split_one": { en: "Split One Bill", id: "Bagi Satu Tagihan" },
   "home.new_trip": { en: "New Trip", id: "Perjalanan Baru" },
   "home.new_bill_name": { en: "New bill", id: "Tagihan baru" },
   "home.col_name": { en: "Name", id: "Nama" },
