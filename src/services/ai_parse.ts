@@ -15,7 +15,13 @@ import { exprToMinor } from "./amount_expr";
 import { imageJson, textJson } from "./llm_client";
 import type { MemberRow } from "./repo";
 
-export interface DraftItem { name: string; qty: string; amount: string | null; members: string[] }
+/**
+ * `unknown`: names on this line that match no member, kept so the form can add
+ * that person and put them back on the line in one tap (the code never
+ * creates a member). `everyone`: the line is for everybody (said "all", or
+ * named nobody), so a person added later joins it too.
+ */
+export interface DraftItem { name: string; qty: string; amount: string | null; members: string[]; unknown?: string[]; everyone?: boolean }
 export interface DraftAdj { kind: "tax" | "service" | "tip" | "discount" | "other"; amount: string }
 export interface Draft {
   description: string;
@@ -29,6 +35,10 @@ export interface Draft {
   adjustments?: DraftAdj[];
   participants?: { member: string; bp?: number }[];
   unknown: string[];
+  /** Where the unmatched names go, as DraftItem.unknown / everyone do for a line. */
+  payer_unknown?: string;
+  participants_unknown?: { name: string; bp?: number }[];
+  participants_everyone?: boolean;
   source: "chat" | "photo" | "telegram";
 }
 
@@ -149,6 +159,27 @@ export function resolveNames(raw: unknown, ctx: ParseCtx, unknown: Set<string>):
     else unknown.add(n);
   }
   return out;
+}
+
+/** resolveNames, plus the names it could not match on THIS list. */
+function _resolve(raw: unknown, ctx: ParseCtx, unknown: Set<string>): { ids: string[]; missing: string[] } {
+  const here = new Set<string>();
+  const ids = resolveNames(raw, ctx, here);
+  here.forEach((n) => unknown.add(n));
+  return { ids, missing: [...here] };
+}
+
+/** A people list that means "everybody": it says so, or names nobody. */
+function _saysAll(raw: unknown): boolean {
+  const list = Array.isArray(raw) ? raw : [];
+  return !list.length || list.some((r) => ALL.has(String(r ?? "").trim().replace(/^@/, "").toLowerCase()));
+}
+
+/** Optional draft fields stay off the draft when empty. */
+function _line(it: DraftItem, missing: string[], everyone: boolean): DraftItem {
+  if (missing.length) it.unknown = missing;
+  if (everyone) it.everyone = true;
+  return it;
 }
 
 /**
@@ -272,16 +303,17 @@ export function draftFromChat(parsed: any, ctx: ParseCtx, source: "chat" | "tele
   const unknown = new Set<string>();
   const currency = currencyInText(text, ctx.currency) ?? _currency(parsed?.currency, ctx.currency);
   const dp = minorUnits(currency);
-  const payerIds = parsed?.payer ? resolveNames([parsed.payer], ctx, unknown) : [];
+  const payerR = parsed?.payer ? _resolve([parsed.payer], ctx, unknown) : { ids: [], missing: [] };
   const d: Draft = {
     description: cleanText(parsed?.description, 120) || "Bill",
     date: _chatDate(parsed, ctx.today),
     currency,
     mode: "items",
-    payer: payerIds[0] ?? ctx.sender,
+    payer: payerR.ids[0] ?? ctx.sender,
     unknown: [],
     source,
   };
+  if (!payerR.ids.length && payerR.missing.length) d.payer_unknown = payerR.missing[0];
   let mode = ["items", "even", "percent"].includes(parsed?.mode) ? parsed.mode : "items";
   const items = Array.isArray(parsed?.items) ? parsed.items : [];
   if (mode === "items" && !items.length && parsed?.total_expr) mode = "even";
@@ -294,9 +326,11 @@ export function draftFromChat(parsed: any, ctx: ParseCtx, source: "chat" | "tele
       .filter((it: any) => !ADJ_WORD.some(([re, kind]) => re.test(String(it?.name ?? "").trim()) && adjKinds.has(kind)))
       .map((it: any): DraftItem => {
         const amt = readAmount(it?.amount_expr, dp, true);
-        let who = _onlyMentioned(resolveNames(it?.people, ctx, unknown), keep);
+        const r = _resolve(it?.people, ctx, unknown);
+        let who = _onlyMentioned(r.ids, keep);
         if (!who.length && !(Array.isArray(it?.people) && it.people.length)) who = ctx.members.filter((m) => m.active).map((m) => m.id);
-        return { name: cleanText(it?.name, 120) || "Item", qty: "1", amount: amt === null ? null : amt.toString(), members: who };
+        const item = { name: cleanText(it?.name, 120) || "Item", qty: "1", amount: amt === null ? null : amt.toString(), members: who };
+        return _line(item, r.missing, _saysAll(it?.people));
       });
     draftItems = _dropRestatedTotal(draftItems, ctx).filter((it) => it.amount !== null || !_isPersonLine(it, ctx));
     d.items = draftItems;
@@ -315,17 +349,24 @@ export function draftFromChat(parsed: any, ctx: ParseCtx, source: "chat" | "tele
     const total = readAmount(parsed?.total_expr, dp);
     d.total = total === null ? null : total.toString();
     if (mode === "even") {
-      let who = _onlyMentioned(resolveNames(parsed?.people, ctx, unknown), keep);
+      const r = _resolve(parsed?.people, ctx, unknown);
+      let who = _onlyMentioned(r.ids, keep);
       if (!who.length && !(Array.isArray(parsed?.people) && parsed.people.length)) who = ctx.members.filter((m) => m.active).map((m) => m.id);
       d.participants = who.map((member) => ({ member }));
+      if (r.missing.length) d.participants_unknown = r.missing.map((name) => ({ name }));
+      if (_saysAll(parsed?.people)) d.participants_everyone = true;
     } else {
       d.participants = [];
+      const missing: { name: string; bp: number }[] = [];
       for (const p of Array.isArray(parsed?.percents) ? parsed.percents : []) {
-        const [id] = resolveNames([p?.name], ctx, unknown);
+        const r = _resolve([p?.name], ctx, unknown);
+        const id = r.ids[0];
         let bp = 0;
         try { bp = parsePercent(p?.percent); } catch { bp = 0; }
         if (id && bp > 0 && !d.participants.some((x) => x.member === id)) d.participants.push({ member: id, bp });
+        else if (!id && r.missing.length && bp > 0 && !missing.some((x) => x.name === r.missing[0])) missing.push({ name: r.missing[0], bp });
       }
+      if (missing.length) d.participants_unknown = missing;
     }
   }
   d.mode = mode;
@@ -369,23 +410,27 @@ export function draftFromReceipt(rec: any, assign: any, ctx: ParseCtx, source: "
   const currency = _currency(rec?.currency, ctx.currency);
   const dp = minorUnits(currency);
   const everyone = ctx.members.filter((m) => m.active).map((m) => m.id);
-  const byItem = new Map<number, string[]>();
+  const byItem = new Map<number, { ids: string[]; missing: string[]; all: boolean }>();
   for (const a of Array.isArray(assign?.assign) ? assign.assign : []) {
     const n = Number(a?.item);
     // An empty list is "not said", so the item falls back to the default people.
-    if (Number.isInteger(n) && Array.isArray(a?.people) && a.people.length) byItem.set(n, resolveNames(a.people, ctx, unknown));
+    if (Number.isInteger(n) && Array.isArray(a?.people) && a.people.length) byItem.set(n, { ..._resolve(a.people, ctx, unknown), all: _saysAll(a.people) });
   }
-  const fallback = assign?.default_people?.length ? resolveNames(assign.default_people, ctx, unknown) : (assign ? [] : everyone);
+  // No note: every line is everybody's. A note that names nobody for a line leaves it empty.
+  const fallback = assign?.default_people?.length
+    ? { ..._resolve(assign.default_people, ctx, unknown), all: _saysAll(assign.default_people) }
+    : { ids: assign ? [] : everyone, missing: [] as string[], all: !assign };
   const items: DraftItem[] = (Array.isArray(rec?.items) ? rec.items : []).slice(0, 150).map((it: any, i: number) => {
     const amt = readAmount(it?.amount, dp, true);
     const qty = Number(it?.qty);
     const q = Number.isFinite(qty) && qty > 0 && qty < 1e6 ? String(Math.round(qty * 1000) / 1000) : "1";
-    return {
+    const who = byItem.get(i + 1) ?? fallback;
+    return _line({
       name: cleanText(it?.name, 120) || `#${i + 1}`,
       qty: q,
       amount: amt === null ? null : amt.toString(),
-      members: byItem.get(i + 1) ?? (assign ? fallback : everyone),
-    };
+      members: who.ids,
+    }, who.missing, who.all);
   });
   const adjustments: DraftAdj[] = [];
   for (const kind of ["tax", "service", "tip", "discount"] as const) {
@@ -396,19 +441,21 @@ export function draftFromReceipt(rec: any, assign: any, ctx: ParseCtx, source: "
   const rnd = readAmount(rec?.rounding, dp);
   if (rnd !== null && rnd > 0n) adjustments.push({ kind: "other", amount: (/^[^\d]*[-\u2212(]/.test(String(rec.rounding)) ? -rnd : rnd).toString() });
   const total = readAmount(rec?.total, dp);
-  const payer = assign?.payer ? resolveNames([assign.payer], ctx, unknown)[0] : undefined;
-  return {
+  const payerR = assign?.payer ? _resolve([assign.payer], ctx, unknown) : { ids: [], missing: [] };
+  const d: Draft = {
     description: cleanText(rec?.merchant, 120) || "Receipt",
     date: _date(rec?.date, ctx.today),
     currency,
     mode: "items",
-    payer: payer ?? ctx.sender,
+    payer: payerR.ids[0] ?? ctx.sender,
     items,
     adjustments,
     stated_total: total === null ? null : total.toString(),
     unknown: [...unknown],
     source,
   };
+  if (!payerR.ids.length && payerR.missing.length) d.payer_unknown = payerR.missing[0];
+  return d;
 }
 
 export async function parseReceipt(image: { b64: string; mime: string }, caption: string, ctx: ParseCtx, source: "photo" | "telegram" = "photo") {

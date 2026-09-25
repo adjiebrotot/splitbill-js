@@ -38,12 +38,12 @@ export async function fetchFxratesBest(fromCcy: string, toCcy: string, date: str
 /**
  * A float rate as the stored "big side first" pair: 1 foreign = x settlement
  * when x >= 1, else 1 settlement = (1/x) foreign (inverted). 10 significant
- * digits, trailing zeros trimmed, at most 12 decimals.
+ * digits, no trailing zeros.
  */
 export function bigSideFirst(settlementPerForeign: number): { rate: string; inverted: boolean } {
   const inverted = settlementPerForeign < 1;
   const v = inverted ? 1 / settlementPerForeign : settlementPerForeign;
-  let s = Number(v.toPrecision(10)).toFixed(12);
-  s = s.replace(/\.?0+$/, "");
-  return { rate: s, inverted };
+  // v >= 1, so 10 significant digits never need more than 9 decimals. The
+  // shortest round-trip form: toFixed(12) printed float noise (17948.302459999999).
+  return { rate: String(Number(v.toPrecision(10))), inverted };
 }

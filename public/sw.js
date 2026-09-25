@@ -7,33 +7,33 @@
  *   page loads      network first; offline, the page's cached shell, which
  *                   then renders its last boot payload from localStorage.
  */
-const CACHE = 'sb-c7c7d4f3';
+const CACHE = 'sb-a40175a4';
 const STATIC = [
-  '/app/static/css/shared.css?v=90f2868c',
+  '/app/static/css/shared.css?v=7e1802d8',
   '/app/static/assets/icons.svg?v=17f4531f',
-  '/app/static/js/i18n-all.js?v=22569b41',
+  '/app/static/js/i18n-all.js?v=7b904aa2',
   '/app/static/js/boot.js?v=466484cf',
   '/app/static/js/engine.js?v=f52c3ca1',
-  '/app/static/js/ui.js?v=b30fcd5a',
+  '/app/static/js/ui.js?v=d5b36f67',
   '/app/static/js/i18n.js?v=3c7c0ae8',
   '/app/static/js/topbar.js?v=87d85aba',
   '/app/static/js/currency.js?v=7e4d6b4b',
-  '/app/static/js/home.js?v=f1448825',
-  '/app/static/js/group.js?v=8107f89a',
-  '/app/static/js/bill.js?v=5660c6f0',
+  '/app/static/js/home.js?v=f6d8715f',
+  '/app/static/js/group.js?v=464dc3b9',
+  '/app/static/js/bill.js?v=f276cb09',
   '/app/static/js/settings.js?v=445072ee',
   '/app/static/js/join.js?v=20af1930',
   '/app/static/js/auth.js?v=2cde165a',
   '/app/static/js/admin.js?v=30172910',
   '/app/static/icons/icon-192.png?v=34543553',
-  '/app/static/pages/landing.html?v=978ef9de',
-  '/app/static/pages/login.html?v=90d2832c',
-  '/app/static/pages/register.html?v=de49d0e1',
-  '/app/static/pages/home.html?v=01e28f9a',
-  '/app/static/pages/group.html?v=991c8da2',
-  '/app/static/pages/join.html?v=ba0062c8',
-  '/app/static/pages/settings.html?v=5fea9859',
-  '/app/static/pages/admin.html?v=f40b5771',
+  '/app/static/pages/landing.html?v=ae6d9762',
+  '/app/static/pages/login.html?v=cf63a1b7',
+  '/app/static/pages/register.html?v=2f7e7fc9',
+  '/app/static/pages/home.html?v=93d13d69',
+  '/app/static/pages/group.html?v=929d07ac',
+  '/app/static/pages/join.html?v=954fbd9b',
+  '/app/static/pages/settings.html?v=54cc4fb3',
+  '/app/static/pages/admin.html?v=31c401f3',
 ];
 
 /* Which shell a pretty URL is served from (mirrors next.config.mjs rewrites). */

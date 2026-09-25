@@ -17,7 +17,7 @@
 import { atomic, execute, fetchall, fetchone } from "../db";
 import { ActionError, err, fail, ok, type Result } from "../errors";
 import {
-  ADJ_KINDS, allocate, EngineError, ENGINE_VERSION, isCurrency, minorUnits, normCurrency, parseMinor, parseRate,
+  ADJ_KINDS, allocate, EngineError, ENGINE_VERSION, findRate, isCurrency, minorUnits, normCurrency, parseMinor, parseRate,
   type AdjKind, type BillIn,
 } from "../engine";
 import { newGroupId, newInviteCode } from "../ids";
@@ -507,8 +507,10 @@ function _canEditBill(c: Ctx, createdBy: string | null): boolean {
 
 /** Create (no bill_id) or replace (bill_id + version) a bill. */
 export async function saveBill(p: { user_id: string } & Params) {
+  const auto = await _autoRatesFor(p.group_id, [{ currency: p.currency, date: p.date }]);
   return write(p.user_id, p.group_id, async (c) => {
     _requireOpen(c);
+    await _addAutoRates(c, auto);
     if (!c.me!.active) fail("member_inactive", {}, 403);
     const gid = c.s.group.group_id;
     const existing = p.bill_id ? c.s.bills.find((b) => b.id === String(p.bill_id)) : null;
@@ -568,6 +570,12 @@ export async function saveBill(p: { user_id: string } & Params) {
       billId = String(r![0]);
     }
     await _writeLines(gid, billId, bill);
+    // A one-off is its bill: the split is named after it (the list, reports, Telegram).
+    const name = bill.description.slice(0, 80).trim();
+    if (c.s.group.kind === "one_off" && name && name !== c.s.group.name) {
+      await execute("UPDATE groups SET name = $1 WHERE group_id = $2", [name, gid]);
+      await c.log("rename", "group", gid, { from: c.s.group.name, to: name });
+    }
     if (p.draft_id) {
       await execute("UPDATE drafts SET status = 'used' WHERE draft_id = $1 AND group_id = $2 AND status = 'pending'", [String(p.draft_id), gid]);
     }
@@ -598,8 +606,10 @@ function _canRecordPayment(c: Ctx, from: MemberRow, to: MemberRow): boolean {
 }
 
 export async function recordPayment(p: { user_id: string } & Params) {
+  const auto = await _autoRatesFor(p.group_id, [{ currency: p.currency, date: p.date }]);
   return write(p.user_id, p.group_id, async (c) => {
     _requireOpen(c);
+    await _addAutoRates(c, auto);
     const from = _member(c, p.from);
     const to = _member(c, p.to);
     if (from.id === to.id) fail("payment_self");
@@ -861,18 +871,82 @@ async function _coverageOr(code: string, gid: string): Promise<void> {
   }
 }
 
-/** A market rate to prefill the form. Saves nothing. */
+/**
+ * A market rate to prefill a form. Saves nothing. `to` defaults to the trip's
+ * settlement currency (Change Currency asks for the new one).
+ */
 export async function suggestRate(p: { user_id: string } & Params) {
   const s = await loadGroup(String(p.group_id ?? ""));
   if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
   const currency = normCurrency(p.currency);
-  if (!isCurrency(currency) || currency === s.group.currency) fail("currency_invalid");
+  const to = p.to ? normCurrency(p.to) : s.group.currency;
+  if (!isCurrency(currency) || !isCurrency(to) || currency === to) fail("currency_invalid");
   const date = p.effective && p.effective !== "-infinity" && isDate(String(p.effective)) ? String(p.effective) : null;
   const today = localDate(s.group.timezone);
   const { fetchFxratesBest, bigSideFirst } = await import("../fx_providers");
-  const r = await fetchFxratesBest(currency, s.group.currency, date && date < today ? date : null);
+  const r = await fetchFxratesBest(currency, to, date && date < today ? date : null);
   if (!r) fail("rate_unavailable", {}, 502);
   return bigSideFirst(r);
+}
+
+// ── automatic rates ─────────────────────────────────────────────────────────
+
+interface AutoRate { currency: string; effective: string; rate: string; inverted: boolean }
+
+/**
+ * Market rates for trip money in a currency the rate table does not cover
+ * yet. Fetched BEFORE the write, so no network call runs under the group
+ * lock. A currency's first rate counts "from the start"; a later gap gets a
+ * rate on its own date. A provider that is down gives nothing, and the write
+ * then refuses as it always did (rate_needed / rate_missing).
+ */
+async function _autoRatesFor(groupId: unknown, wants: { currency: unknown; date: unknown }[]): Promise<AutoRate[]> {
+  const s = await loadGroup(String(groupId ?? ""));
+  if (!s || s.group.kind !== "travel" || s.group.status !== "open") return [];
+  const today = localDate(s.group.timezone);
+  const { fetchFxratesBest, bigSideFirst } = await import("../fx_providers");
+  const out: AutoRate[] = [];
+  for (const w of wants) {
+    const currency = normCurrency(w.currency ?? s.group.currency);
+    if (!isCurrency(currency) || currency === s.group.currency) continue;
+    const date = isDate(String(w.date ?? "")) ? String(w.date) : today;
+    if (findRate(s.rates, currency, date) || out.some((a) => a.currency === currency)) continue;
+    const r = await fetchFxratesBest(currency, s.group.currency, date < today ? date : null);
+    if (!r) continue;
+    const first = !s.rates.some((x) => x.currency === currency);
+    out.push({ currency, effective: first ? "-infinity" : date, ...bigSideFirst(r) });
+  }
+  return out;
+}
+
+/** Inside write(): add the fetched rates where the table still has a gap. */
+async function _addAutoRates(c: Ctx, rates: AutoRate[]): Promise<void> {
+  for (const a of rates) {
+    const n = await execute(
+      `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by)
+       VALUES ($1, $2, $3::date, $4, $5, 'auto', $6) ON CONFLICT (group_id, currency, effective_date) DO NOTHING`,
+      [c.s.group.group_id, a.currency, a.effective, parseRate(a.rate).text, a.inverted, c.userId],
+    );
+    if (n > 0) await c.log("set", "rate", `${a.currency}|${a.effective}`, { rate: a.rate, inverted: a.inverted, source: "auto" });
+  }
+}
+
+/**
+ * Fill every rate the trip is missing (a bill whose rate was deleted, an old
+ * gap) with a market rate. Any member may: it only fills gaps, never replaces.
+ */
+export async function fillRates(p: { user_id: string } & Params) {
+  const s = await loadGroup(String(p.group_id ?? ""));
+  if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
+  const missing = compute(s).missing;
+  if (!missing.length) return { added: 0 };
+  const auto = await _autoRatesFor(p.group_id, missing);
+  if (!auto.length) fail("rate_unavailable", {}, 502);
+  return write(p.user_id, p.group_id, async (c) => {
+    _requireOpen(c);
+    await _addAutoRates(c, auto);
+    return { added: auto.length };
+  });
 }
 
 /**
@@ -1226,5 +1300,13 @@ export async function cleanup() {
     updates: await n("DELETE FROM telegram_updates WHERE received_at < NOW() - INTERVAL '7 days'"),
     pending: await n("DELETE FROM telegram_pending WHERE expires_at < NOW()"),
     ai_usage: await n("DELETE FROM ai_usage WHERE day < CURRENT_DATE - 60"),
+    // "Add Bill" opens a one-off at once; one left before its bill was saved
+    // (tab closed) holds no money, so it is hidden like a deleted split.
+    empty_one_offs: await n(
+      `UPDATE groups g SET deleted_at = NOW() WHERE g.kind = 'one_off' AND g.deleted_at IS NULL
+         AND g.created_at < NOW() - INTERVAL '1 day'
+         AND NOT EXISTS (SELECT 1 FROM bills b WHERE b.group_id = g.group_id)
+         AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.group_id = g.group_id)`,
+    ),
   };
 }

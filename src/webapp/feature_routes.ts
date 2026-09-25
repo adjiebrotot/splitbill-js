@@ -22,6 +22,7 @@ addRoutes({
   // ── rates ──
   "POST rate/set": async (_req, ctx) => answer(await A.run(() => A.setRate({ ...ctx.body, user_id: need(ctx).user_id }))),
   "POST rate/delete": async (_req, ctx) => answer(await A.run(() => A.deleteRate({ ...ctx.body, user_id: need(ctx).user_id }))),
+  "POST rate/fill": async (_req, ctx) => answer(await A.run(() => A.fillRates({ ...ctx.body, user_id: need(ctx).user_id }))),
   "POST rate/auto": async (_req, ctx) => answer(await A.run(() => A.suggestRate({ ...ctx.body, user_id: need(ctx).user_id }))),
   "POST group/currency": async (_req, ctx) => answer(await A.run(() => A.changeCurrency({ ...ctx.body, user_id: need(ctx).user_id }))),
 

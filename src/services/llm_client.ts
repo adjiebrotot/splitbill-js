@@ -28,6 +28,11 @@ export class AiUnavailable extends Error {}
 
 type Dict = Record<string, any>;
 
+/** Whether chat and photo input can work at all (the pages hide them when not). */
+export function aiConfigured(): boolean {
+  return !!process.env.LLM_API_KEY;
+}
+
 function _key(): string {
   const k = process.env.LLM_API_KEY;
   if (!k) throw new AiUnavailable("LLM_API_KEY is not set");

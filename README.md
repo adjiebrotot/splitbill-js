@@ -4,9 +4,9 @@ Split bills among friends: one-off bills and whole trips. Next.js route handlers
 
 ## What it does
 
-- **One-off**: one bill, split by item, evenly or by percent. Settle when done.
-- **Trip**: many bills over a trip, members with or without the app, many currencies with one group rate table, mid-trip repayments. The owner settles at the end; transfers are ticked off as paid; the owner can reopen.
-- **Input**: form, chat text or receipt photo. AI output is always a draft you check.
+- **One-off**: tap Add Bill, snap the receipt (or type it), add people right in the bill, save. No split to set up first; it is named after its bill. Split by item, evenly or by percent. Settle when done.
+- **Trip**: many bills over a trip, members with or without the app, many currencies with one group rate table (market rates are added automatically; the owner can edit them), mid-trip repayments. The owner settles at the end; transfers are ticked off as paid; the owner can reopen.
+- **Input**: receipt photo first, then chat text, then the form. AI output is always a draft you check; names it cannot match become one-tap "+ Name" chips.
 - **Reports**: group (who pays whom) and individual, as text to copy or PNG / PDF. Unsettled reports say NOT SETTLED.
 - **Telegram**: private chat and group chats.
 
@@ -57,7 +57,7 @@ or from the admin console (below), System → Apply Pending.
    ```bash
    curl -X POST -H "Authorization: Bearer $SETUP_SECRET" https://<host>/app/api/admin/telegram-webhook
    ```
-3. Users link in Settings → Connect Telegram (a one-time deep link). A trip owner adds the bot to a Telegram group from the trip's Manage card → Connect Telegram Group.
+3. Users link in Settings → Connect Telegram (a one-time deep link). A trip owner adds the bot to a Telegram group from the trip's gear (Manage) → Connect Telegram Group.
 
 Private chat: send a bill as text or a receipt photo; the bot answers with a draft and [Save] [Edit in app] [Cancel]. `/groups` picks the split, `/report` and `/me` send reports with PNG / PDF buttons.
 

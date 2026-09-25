@@ -6,7 +6,13 @@ Inherited from finance-tracker-js, whose main app is the source of truth for eve
 
 - Pages are static HTML in `public/app/static/pages/*.html` (not `templates.json`). They carry NO `<style>` block: every rule lives in `shared.css`. Split Bill's own components (chips, bill lines, reconcile line, preview, transfers) are in its SPLIT BILL section, above SPACING RHYTHM.
 - The shell is `topbar.js` with two destinations (My splits, Settings). No bottom tabs.
-- The group page is a tool page: `.tool-card` per collection, `+ Add <thing>` as `btn-ghost btn-compact` in `.tool-head-actions`, pencil then trash per row, `confirmDialog` for every delete.
+- Layout follows use, not symmetry. The action done most (`Add Bill`) is ONE full-width `btn-primary` (`.page-action`) above the cards, on Home and on a split. Then Bills, then Balances (tiles + who pays whom; the per-member table is behind `Details`). Payments and Members sit side by side in `.tool-cols` (one column under 760px). Rarely used things are one button that opens a modal: `Rates` and the gear (`Manage`: rename, currency, Telegram, new invite link, delete) in the page header's `.head-actions`.
+- A bill row opens its bill (`.row-link`); its delete is the trash in the bill modal's head (`.modal-head-actions`), still through `confirmDialog`. Payments and members keep their row actions.
+- The bill modal shows only what the step needs: a new bill starts at its input (Photo, Chat, Form tabs; picking a photo reads it at once). After a read the input gives way to `Reset` and the form. Date, currency and receipt total fold into `<details class="more">`. Chip rows end in a `+` (`.mchip-add`) that adds a person in place; the payer is a chip row too.
+- Money reads "IDR 120,000": the code leads, as `.ccy` (text font, quieter) before the mono figure. Build it with `moneyHtml()` / `signedMoneyHtml()` (ui.js); `money()` is the same order as plain text for sentences. Reports and Telegram use the same order.
+- A list that can grow is paged with `renderPager()` (ui.js) into its card's `.tool-pagination`: Bills 10 a page, Payments and Members 5 each. Payments and Members stand the same height (`.tool-cols` stretches them; the pager sits on the bottom edge).
+- The toast sits centred at the bottom of the screen, above any modal.
+- Otherwise the group page is a tool page: `.tool-card` per collection, `+ Add <thing>` as `btn-ghost btn-compact` in `.tool-head-actions`, `confirmDialog` for every delete.
 - Cache busting is automatic: `npx tsx scripts/stamp_assets.ts` (see `CLAUDE.md`). Ignore the manual `?v=N` / two-copy `sw.js` rules below; they describe finance-tracker.
 
 The finance-tracker text follows. Where it names a finance page or file, read it as the matching Split Bill one.
