@@ -71,6 +71,8 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     expect(netOf(v, "Ali")).toBe(-1500n);
     expect(netOf(v, "Bob")).toBe(-500n);
     expect(netOf(v, "Don")).toBe(2000n);
+    // A one-off is final once its bill is saved.
+    expect(v.stage).toBe("final");
 
     // Settling against a stale revision is refused.
     const stale = await A.run(() => A.settleGroup({ user_id: uid.ali, group_id: g.group_id, expected_revision: "1" }));
@@ -80,6 +82,7 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     expect(s.ok).toBe(true);
     v = await view(g.group_id);
     expect(v.group.status).toBe("settled");
+    expect(v.stage).toBe("final");
     expect(v.transfers.map((t) => `${t.from}>${t.to}:${t.amount}:${t.status}`).sort()).toEqual([`${ali}>${don}:1500:pending`, `${bob}>${don}:500:pending`].sort());
 
     // Locked: no bill edits while settled.
@@ -95,15 +98,56 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     await A.markTransferPaid({ user_id: uid.ali, group_id: g.group_id, transfer_id: tAli.id });
     v = await view(g.group_id);
     expect(v.balances.every((b) => b.net === 0n)).toBe(true);
+    expect(v.stage).toBe("settled");
 
     // Unmark restores the debt; reopen keeps paid transfers as payments.
     await A.unmarkTransferPaid({ user_id: uid.ali, group_id: g.group_id, transfer_id: tAli.id });
     expect(netOf(await view(g.group_id), "Ali")).toBe(-1500n);
+    expect((await view(g.group_id)).stage).toBe("final");
     await A.reopenGroup({ user_id: uid.ali, group_id: g.group_id });
     v = await view(g.group_id);
     expect(v.group.status).toBe("open");
     expect(netOf(v, "Bob")).toBe(0n);
     expect(netOf(v, "Ali")).toBe(-1500n);
+  });
+
+  it("stage: every medium agrees (view, My splits, report, file name)", async () => {
+    const agree = async (gid: string, stage: string, status: RegExp, suffix: string) => {
+      expect((await view(gid)).stage).toBe(stage);
+      expect((await A.listMyGroups({ user_id: uid.ali })).find((x) => x.group_id === gid)!.stage).toBe(stage);
+      const r = await A.getReport({ user_id: uid.ali, group_id: gid, type: "group", lang: "en" });
+      if (r.kind !== "text") throw new Error("expected text");
+      expect(r.doc.stage).toBe(stage);
+      expect(r.doc.status).toMatch(status);
+      expect(r.doc.stamp).toBe(stage === "open" ? "NOT FINAL" : stage === "final" ? "NOT SETTLED" : "");
+      expect(r.filename).toMatch(new RegExp(`-group${suffix}\\.txt$`));
+    };
+
+    // One-off, paid off with Mark Paid (a plain payment, no Settle step): the reported bug.
+    const one = await A.createGroup({ user_id: uid.ali, kind: "one_off", name: "Berghotel", currency: "CHF", members: [{ name: "Dwiki" }] });
+    let v = await view(one.group_id);
+    const [ali, dwiki] = ["Ali", "Dwiki"].map((n) => memberId(v, n));
+    await agree(one.group_id, "open", /^NOT FINAL · as of/, "-not-final");
+    await A.saveBill({ user_id: uid.ali, group_id: one.group_id, description: "Lunch", date: "2026-09-20", mode: "even", payer: ali, total: "5450",
+      participants: [{ member: ali }, { member: dwiki }] });
+    await agree(one.group_id, "final", /^FINAL · NOT SETTLED · as of/, "-not-settled");
+    await A.recordPayment({ user_id: uid.ali, group_id: one.group_id, from: dwiki, to: ali, amount: "2725", date: "2026-09-20" });
+    await agree(one.group_id, "settled", /^SETTLED 20 Sept 2026$/, "");
+
+    // Trip: open, Finalise, pay off, reopen.
+    const trip = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Alps", currency: "CHF", members: [{ name: "Eko" }] });
+    v = await view(trip.group_id);
+    const [a2, eko] = ["Ali", "Eko"].map((n) => memberId(v, n));
+    await A.saveBill({ user_id: uid.ali, group_id: trip.group_id, description: "Train", date: "2026-09-20", mode: "even", payer: a2, total: "10000",
+      participants: [{ member: a2 }, { member: eko }] });
+    await agree(trip.group_id, "open", /^NOT FINAL/, "-not-final");
+    await A.settleGroup({ user_id: uid.ali, group_id: trip.group_id, expected_revision: (await view(trip.group_id)).group.revision });
+    await agree(trip.group_id, "final", /^FINAL · NOT SETTLED · 0\/1 paid$/, "-not-settled");
+    const tr = (await view(trip.group_id)).transfers[0];
+    await A.markTransferPaid({ user_id: uid.ali, group_id: trip.group_id, transfer_id: tr.id });
+    await agree(trip.group_id, "settled", /^SETTLED /, "");
+    await A.reopenGroup({ user_id: uid.ali, group_id: trip.group_id });
+    await agree(trip.group_id, "open", /^NOT FINAL/, "-not-final");
   });
 
   it("travel: invite, even and percent splits, payments, permissions", async () => {

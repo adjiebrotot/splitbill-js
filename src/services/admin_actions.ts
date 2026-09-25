@@ -21,7 +21,7 @@ import * as A from "./actions";
 import { USERNAME_RE } from "./user_service";
 import { MigrationError, migrationStatus, runMigrations } from "./migrate";
 import { loadGroups } from "./repo";
-import { compute } from "./ledger";
+import { compute, stageFor, type Stage } from "./ledger";
 
 type Dict = Record<string, unknown>;
 
@@ -191,7 +191,14 @@ export async function getUser(p: { user_id: unknown }) {
   )).map((r) => ({
     group_id: String(r[0]), name: String(r[1]), kind: String(r[2]), status: String(r[3]),
     owner: _bool(r[4]), member_name: String(r[5]), active: _bool(r[6]), deleted: _bool(r[7]),
+    stage: "open" as Stage,
   }));
+  // The same stage the member sees (open / final / settled).
+  const states = await loadGroups(groups.filter((g) => !g.deleted).map((g) => g.group_id));
+  for (const g of groups) {
+    const s = states.get(g.group_id);
+    if (s) g.stage = stageFor(s, compute(s));
+  }
   return { user, groups, handover: await A.ownershipHandover(user.user_id) };
 }
 

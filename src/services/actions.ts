@@ -22,7 +22,7 @@ import {
 } from "../engine";
 import { newGroupId, newInviteCode } from "../ids";
 import { addDays, cleanText, isDate, localDate, safeTimezone, DEFAULT_TZ } from "../utils";
-import { compute, stageOf, viewOf, type GroupView } from "./ledger";
+import { compute, stageFor, viewOf, type GroupView } from "./ledger";
 import { loadGroup, loadGroups, lockGroup, type GroupState, type MemberRow } from "./repo";
 import { findUserByUsername, getMe } from "./user_service";
 import { AiUnavailable } from "./llm_client";
@@ -171,7 +171,7 @@ export async function listMyGroups(p: { user_id: string }) {
       my_net: c.balances.find((b) => b.id === me.id)?.net ?? 0n,
       // Payments still owed (a finalised trip's balances equal its unpaid transfers).
       owed: c.transfers.length,
-      stage: stageOf(s.group, s.bills.length, c.transfers.length),
+      stage: stageFor(s, c),
       created_at: s.group.created_at,
       // Newest activity: the last bill or payment written, else the split itself.
       last_at: _lastActivity(s),

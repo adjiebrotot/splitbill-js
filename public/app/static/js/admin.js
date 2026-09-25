@@ -234,7 +234,7 @@
       show('u-groups', gs.length > 0);
       show('u-groups-title', gs.length > 0);
       $('u-groups-body').innerHTML = gs.map(function (g) {
-        var st = g.deleted ? chip('Deleted', 'muted') : g.status === 'settled' ? chip('Final', 'final') : chip('Open', 'open');
+        var st = g.deleted ? chip('Deleted', 'muted') : g.stage === 'settled' ? chip('Settled', 'settled') : g.stage === 'final' ? chip('Final', 'final') : chip('Open', 'open');
         return '<tr><td>' + esc(g.name) + '<div class="tool-sub">' + esc(g.group_id) + (g.owner ? ' · owner' : '') + '</div></td>' +
           '<td>' + esc(g.member_name) + (g.active ? '' : ' <span class="muted">(inactive)</span>') + '</td>' +
           '<td class="mid">' + st + '</td></tr>';

@@ -113,6 +113,17 @@ describe("reports", () => {
     expect(paid.stamp).toBe("");
   });
 
+  it("an incomplete group is never settled (a skipped bill makes balances look even)", () => {
+    const s = state(5);
+    s.group.kind = "one_off";
+    s.bills = s.bills.slice(0, 1);
+    s.bills[0].currency = "EUR"; // no EUR rate: the bill cannot convert and is left out
+    const out = compute(s);
+    expect(out.complete).toBe(false);
+    expect(out.transfers).toHaveLength(0);
+    expect(groupReport(viewOf(s, out, "u1"), "en").stage).toBe("final");
+  });
+
   it("stageOf: open, final, settled", () => {
     expect(stageOf({ kind: "travel", status: "open" }, 3, 0)).toBe("open");
     expect(stageOf({ kind: "travel", status: "settled" }, 3, 2)).toBe("final");
@@ -120,6 +131,8 @@ describe("reports", () => {
     expect(stageOf({ kind: "one_off", status: "open" }, 0, 0)).toBe("open");
     expect(stageOf({ kind: "one_off", status: "open" }, 1, 1)).toBe("final");
     expect(stageOf({ kind: "one_off", status: "open" }, 1, 0)).toBe("settled");
+    expect(stageOf({ kind: "one_off", status: "open" }, 1, 0, false)).toBe("final");
+    expect(stageOf({ kind: "travel", status: "settled" }, 3, 0, false)).toBe("final");
   });
 
   it("an individual report's lines on each bill add up to the share (500 groups)", () => {

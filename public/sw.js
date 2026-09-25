@@ -7,7 +7,7 @@
  *   page loads      network first; offline, the page's cached shell, which
  *                   then renders its last boot payload from localStorage.
  */
-const CACHE = 'sb-f0c908a0';
+const CACHE = 'sb-908605e9';
 const STATIC = [
   '/app/static/css/shared.css?v=6142e9d3',
   '/app/static/assets/icons.svg?v=17f4531f',
@@ -24,7 +24,7 @@ const STATIC = [
   '/app/static/js/settings.js?v=df8606be',
   '/app/static/js/join.js?v=20af1930',
   '/app/static/js/auth.js?v=2cde165a',
-  '/app/static/js/admin.js?v=cadbf3df',
+  '/app/static/js/admin.js?v=cee8cd9e',
   '/app/static/icons/icon-192.png?v=34543553',
   '/app/static/pages/landing.html?v=0e822f71',
   '/app/static/pages/login.html?v=9f76fd3a',
@@ -33,7 +33,7 @@ const STATIC = [
   '/app/static/pages/group.html?v=75d10725',
   '/app/static/pages/join.html?v=2e78cb72',
   '/app/static/pages/settings.html?v=28ba2f1a',
-  '/app/static/pages/admin.html?v=a53dcb68',
+  '/app/static/pages/admin.html?v=985990dc',
 ];
 
 /* Which shell a pretty URL is served from (mirrors next.config.mjs rewrites). */
