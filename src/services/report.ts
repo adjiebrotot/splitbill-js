@@ -8,7 +8,7 @@
  */
 import { formatAmount, frac, roundHalfEven, type Frac } from "../engine";
 import { t, tf } from "../i18n";
-import type { GroupView } from "./ledger";
+import type { GroupView, Stage } from "./ledger";
 
 export interface Line {
   text: string;
@@ -26,7 +26,10 @@ export interface ReportDoc {
   title: string;
   subtitle: string;
   status: string;
-  settled: boolean;
+  /** open (NOT FINAL), final (FINAL, NOT SETTLED) or settled. */
+  stage: Stage;
+  /** The faint diagonal watermark; empty once settled. */
+  stamp: string;
   summary: [string, string][];
   sections: Section[];
   /** "Made with" in the reader's language; `brand` follows it. */
@@ -69,12 +72,23 @@ function names(v: View): Map<string, string> {
 }
 
 function statusLine(v: View, lang: string, now: Date): string {
-  if (v.group.status === "settled" && v.group.settled_at) {
-    const paid = v.transfers.filter((x) => x.status === "paid").length;
-    return tf("rpt.settled_on", lang, fmtDate(String(v.group.settled_at), lang, v.group.timezone)) +
-      (v.transfers.length ? ` · ${paid}/${v.transfers.length} ${t("xfer.paid", lang).toLowerCase()}` : "");
+  const tz = v.group.timezone;
+  if (v.stage === "open") return `${t("rpt.not_final", lang)} · ${tf("rpt.as_of", lang, fmtDate(now.toISOString(), lang, tz))}`;
+  if (v.stage === "final") {
+    const head = `${t("rpt.final", lang)} · ${t("rpt.not_settled", lang)}`;
+    const stored = v.transfers.filter((x) => x.id !== null);
+    if (!stored.length) return `${head} · ${tf("rpt.as_of", lang, fmtDate(now.toISOString(), lang, tz))}`;
+    const paid = stored.filter((x) => x.status === "paid").length;
+    return `${head} · ${paid}/${stored.length} ${t("xfer.paid", lang).toLowerCase()}`;
   }
-  return `${t("rpt.not_settled", lang)} · ${tf("rpt.as_of", lang, fmtDate(now.toISOString(), lang, v.group.timezone))}`;
+  // Settled: the later of the last payment and the day the numbers were locked.
+  const locked = v.group.settled_at ? new Date(String(v.group.settled_at)).toISOString() : "";
+  const on = v.payments.reduce((d, p) => (p.date > d.slice(0, 10) ? p.date : d), locked) || now.toISOString();
+  return tf("rpt.settled_on", lang, fmtDate(on, lang, tz));
+}
+
+function stampOf(v: View, lang: string): string {
+  return v.stage === "open" ? t("rpt.not_final", lang) : v.stage === "final" ? t("rpt.not_settled", lang) : "";
 }
 
 function rateLines(v: View, lang: string): Line[] {
@@ -127,7 +141,8 @@ export function groupReport(v: View, lang: string, now = new Date()): ReportDoc 
     title: g.name,
     subtitle: t("rpt.group_title", lang),
     status: statusLine(v, lang, now),
-    settled: g.status === "settled",
+    stage: v.stage,
+    stamp: stampOf(v, lang),
     summary: [
       [t("new.currency", lang), g.currency],
       [t("bal.spent", lang), money(v.spent, g.currency, g.dp, lang)],
@@ -226,7 +241,8 @@ export function memberReport(v: View, memberId: string, lang: string, now = new 
     title: g.name,
     subtitle: tf("rpt.member_title", lang, who),
     status: statusLine(v, lang, now),
-    settled: g.status === "settled",
+    stage: v.stage,
+    stamp: stampOf(v, lang),
     summary: [
       [t("rpt.col_paid", lang), money(bal?.paid ?? 0, g.currency, g.dp, lang)],
       [t("rpt.col_share", lang), money(bal?.share ?? 0, g.currency, g.dp, lang)],

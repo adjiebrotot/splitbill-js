@@ -22,7 +22,7 @@ import {
 } from "../engine";
 import { newGroupId, newInviteCode } from "../ids";
 import { addDays, cleanText, isDate, localDate, safeTimezone, DEFAULT_TZ } from "../utils";
-import { compute, viewOf, type GroupView } from "./ledger";
+import { compute, stageOf, viewOf, type GroupView } from "./ledger";
 import { loadGroup, loadGroups, lockGroup, type GroupState, type MemberRow } from "./repo";
 import { findUserByUsername, getMe } from "./user_service";
 import { AiUnavailable } from "./llm_client";
@@ -169,8 +169,9 @@ export async function listMyGroups(p: { user_id: string }) {
       bills: s.bills.length,
       spent: c.spent,
       my_net: c.balances.find((b) => b.id === me.id)?.net ?? 0n,
-      // Payments still owed. A one-off has no Settle step: it is settled once this is 0.
+      // Payments still owed (a finalised trip's balances equal its unpaid transfers).
       owed: c.transfers.length,
+      stage: stageOf(s.group, s.bills.length, c.transfers.length),
       created_at: s.group.created_at,
       // Newest activity: the last bill or payment written, else the split itself.
       last_at: _lastActivity(s),
@@ -1017,7 +1018,7 @@ export async function getReport(p: { user_id: string; group_id: unknown; type?: 
     doc = groupReport(v, lang);
   } else fail("report_invalid");
   const slug = (v.group.name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "split").slice(0, 40);
-  const base = `${slug}-${p.type === "member" ? "individual" : "group"}${v.group.status === "settled" ? "" : "-not-settled"}`;
+  const base = `${slug}-${p.type === "member" ? "individual" : "group"}${v.stage === "settled" ? "" : v.stage === "final" ? "-not-settled" : "-not-final"}`;
   if (p.format === "png" || p.format === "pdf") {
     const bin = await import("./report_binary");
     const bytes = p.format === "png" ? await bin.renderPng(doc) : await bin.renderPdf(doc);

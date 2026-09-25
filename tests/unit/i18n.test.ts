@@ -16,7 +16,7 @@ const list = (dir: string) => readdirSync(path.join(ROOT, dir)).map((f) => path.
 // Same in both languages on purpose: brand names, codes, loanwords Indonesian uses as-is.
 const SAME_OK = new Set([
   "app.name", "auth.email", "tg.title", "bill.item", "adj.tip", "bill.col_total", "bill.total",
-  "bal.title", "rpt.balances", "bal.net", "rpt.col_net", "home.sort_az",
+  "bal.title", "rpt.balances", "bal.net", "rpt.col_net", "home.sort_az", "status.final", "rpt.final",
 ]);
 
 describe("i18n", () => {

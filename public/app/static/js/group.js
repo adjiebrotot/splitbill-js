@@ -26,12 +26,6 @@
   function G() { return S.view.group; }
   function isOpen() { return G().status === 'open'; }
   function isTravel() { return G().kind === 'travel'; }
-  /* A one-off holds one bill and never takes another, so it has no Settle
-     step: it is settled once everyone has paid (payments zero the transfers). */
-  function isSettled() {
-    if (G().status === 'settled') return true;
-    return !isTravel() && S.view.bills.length > 0 && !S.view.transfers.length;
-  }
   function myMember() { return S.view.me ? member(S.view.me) : null; }
   function gmoney(minor) { return money(minor, G().currency, G().dp); }
   function gmoneyHtml(minor) { return moneyHtml(minor, G().currency, G().dp); }
@@ -68,9 +62,7 @@
     var owner = S.view.is_owner && !S.offline;
     document.title = g.name + ' · Split Bill';
     $('g-name').textContent = g.name;
-    $('g-chips').innerHTML = isSettled()
-      ? '<span class="chip chip-settled">' + esc(t('status.settled')) + '</span>'
-      : '<span class="chip chip-open">' + esc(t('status.not_settled')) + '</span>';
+    $('g-chips').innerHTML = stageChip(S.view.stage);
 
     var miss = $('missing-banner');
     // A missing rate is fetched, not asked for; the banner is only for a
@@ -745,7 +737,7 @@
   function docHtml(doc) {
     var h = '<div class="rpt-head"><div class="rpt-title">' + esc(doc.title) + '</div>' +
       '<div class="tool-sub">' + esc(doc.subtitle) + '</div>' +
-      '<span class="chip ' + (doc.settled ? 'chip-settled' : 'chip-open') + '">' + esc(doc.status) + '</span></div>';
+      '<span class="chip chip-' + esc(doc.stage) + '">' + esc(doc.status) + '</span></div>';
     if (doc.summary.length) {
       h += '<div class="tool-summary">' + doc.summary.map(function (kv) {
         return '<div class="tool-tile"><div class="lbl">' + esc(kv[0]) + '</div><div class="val">' + esc(kv[1]) + '</div></div>';

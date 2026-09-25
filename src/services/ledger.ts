@@ -32,14 +32,32 @@ export function compute(s: GroupState): GroupOut {
   return computeGroup(toEngine(s));
 }
 
+export type Stage = "open" | "final" | "settled";
+
+/**
+ * Where a split stands, the one rule every medium shows:
+ * - open: bills can still be added (a trip before Finalise, a one-off with no bill yet);
+ * - final: the numbers are locked (a finalised trip, a one-off once its bill is saved)
+ *   and some transfer is still unpaid;
+ * - settled: final, and nobody owes anybody.
+ * `owed` counts the transfers still unpaid.
+ */
+export function stageOf(g: { kind: string; status: string }, bills: number, owed: number): Stage {
+  const locked = g.status === "settled" || (g.kind !== "travel" && bills > 0);
+  if (!locked) return "open";
+  return owed > 0 ? "final" : "settled";
+}
+
 /** Plain-JSON view of a computed group (bigint -> string happens in json()). */
 export function viewOf(s: GroupState, out: GroupOut, meUserId: string | null) {
   const me = s.members.find((m) => m.user_id !== null && m.user_id === meUserId) ?? null;
   const billOut = new Map(out.bills.map((b) => [b.id, b]));
   const payOut = new Map(out.payments.map((p) => [p.id, p]));
   const settled = s.group.status === "settled";
+  const owed = settled ? s.transfers.filter((t) => t.status === "pending").length : out.transfers.length;
   return {
     group: s.group,
+    stage: stageOf(s.group, s.bills.length, owed),
     me: me ? me.id : null,
     is_owner: meUserId !== null && s.group.owner === meUserId,
     members: s.members,

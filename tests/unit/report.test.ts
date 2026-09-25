@@ -1,10 +1,11 @@
 /**
  * Reports: every figure is the engine's, an individual report's lines on a
- * bill add up exactly to that member's share, the status says NOT SETTLED
- * until it is, and PNG / PDF render.
+ * bill add up exactly to that member's share, the status follows the stage
+ * (NOT FINAL while open, FINAL · NOT SETTLED until paid, then SETTLED), and
+ * PNG / PDF render.
  */
 import { describe, it, expect } from "vitest";
-import { compute, viewOf } from "@/services/ledger";
+import { compute, viewOf, stageOf } from "@/services/ledger";
 import { groupReport, memberReport, renderText, fmtRate } from "@/services/report";
 import { formatAmount } from "@/engine";
 import type { GroupState } from "@/services/repo";
@@ -56,11 +57,13 @@ function state(seed: number, settled = false): GroupState {
 }
 
 describe("reports", () => {
-  it("group report balances are the engine's, and say NOT SETTLED while open", () => {
+  it("group report balances are the engine's, and say NOT FINAL while open", () => {
     const s = state(1);
     const v = viewOf(s, compute(s), "u1");
     const doc = groupReport(v, "en");
-    expect(doc.status).toMatch(/^NOT SETTLED/);
+    expect(doc.stage).toBe("open");
+    expect(doc.status).toMatch(/^NOT FINAL · as of/);
+    expect(doc.stamp).toBe("NOT FINAL");
     const table = doc.sections[0];
     if (table.kind !== "table") throw new Error("expected table");
     for (const b of v.balances) {
@@ -68,13 +71,55 @@ describe("reports", () => {
       const net = BigInt(String(b.net));
       expect(row[row.length - 1]).toBe((net > 0n ? "+" : net < 0n ? "-" : "") + formatAmount(net < 0n ? -net : net, 2, "en"));
     }
-    expect(renderText(doc)).toContain("NOT SETTLED");
+    expect(renderText(doc)).toContain("NOT FINAL");
   });
 
-  it("settled reports say so", () => {
+  it("a finalised trip says FINAL · NOT SETTLED until every transfer is paid", () => {
     const s = state(2, true);
-    const v = viewOf(s, compute(s), "u1");
-    expect(groupReport(v, "id").status).toMatch(/^DISELESAIKAN/);
+    const out = compute(s);
+    s.transfers = out.transfers.map((x, i) => ({ id: String(i + 1), round: 1, from: x.from, to: x.to, amount: String(x.amount), status: "pending" }));
+    expect(s.transfers.length).toBeGreaterThan(0);
+    const doc = groupReport(viewOf(s, out, "u1"), "en");
+    expect(doc.stage).toBe("final");
+    expect(doc.status).toBe(`FINAL · NOT SETTLED · 0/${s.transfers.length} paid`);
+    expect(doc.stamp).toBe("NOT SETTLED");
+    expect(groupReport(viewOf(s, out, "u1"), "id").status).toMatch(/^FINAL · BELUM LUNAS/);
+  });
+
+  it("a finalised trip with nothing owed is settled, with no watermark", () => {
+    const s = state(2, true);
+    const doc = groupReport(viewOf(s, compute(s), "u1"), "id");
+    expect(doc.stage).toBe("settled");
+    expect(doc.status).toMatch(/^LUNAS 10 Sep/);
+    expect(doc.stamp).toBe("");
+  });
+
+  it("a one-off is final once its bill is saved, and settled once nobody owes", () => {
+    const s = state(4);
+    s.group.kind = "one_off";
+    s.bills = s.bills.slice(0, 1);
+    const out = compute(s);
+    const doc = groupReport(viewOf(s, out, "u1"), "en");
+    if (out.transfers.length) {
+      expect(doc.stage).toBe("final");
+      expect(doc.status).toMatch(/^FINAL · NOT SETTLED · as of/);
+    }
+    // Everyone pays what they owe: the report the screenshot got wrong.
+    s.payments = out.transfers.map((x, i) => ({ id: String(i + 1), from: x.from, to: x.to, currency: "USD", dp: 2, amount: String(x.amount),
+      date: "2026-09-26", note: null, transfer_id: null, round: 0, created_by: "u1", created_at: "" }));
+    const paid = groupReport(viewOf(s, compute(s), "u1"), "en");
+    expect(paid.stage).toBe("settled");
+    expect(paid.status).toBe("SETTLED 26 Sept 2026");
+    expect(paid.stamp).toBe("");
+  });
+
+  it("stageOf: open, final, settled", () => {
+    expect(stageOf({ kind: "travel", status: "open" }, 3, 0)).toBe("open");
+    expect(stageOf({ kind: "travel", status: "settled" }, 3, 2)).toBe("final");
+    expect(stageOf({ kind: "travel", status: "settled" }, 3, 0)).toBe("settled");
+    expect(stageOf({ kind: "one_off", status: "open" }, 0, 0)).toBe("open");
+    expect(stageOf({ kind: "one_off", status: "open" }, 1, 1)).toBe("final");
+    expect(stageOf({ kind: "one_off", status: "open" }, 1, 0)).toBe("settled");
   });
 
   it("an individual report's lines on each bill add up to the share (500 groups)", () => {

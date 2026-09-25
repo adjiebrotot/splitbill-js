@@ -11,10 +11,7 @@
   var SORT = 'new';
   try { if (localStorage.getItem('sb_splits_sort') === 'az') SORT = 'az'; } catch (e) { /* storage off */ }
 
-  function isSettled(g) {
-    // A one-off has no Settle step: it is settled once nobody owes anybody.
-    return g.status === 'settled' || (g.kind === 'one_off' && g.bills > 0 && g.owed === 0);
-  }
+  function isSettled(g) { return g.stage === 'settled'; }
   function sorted(list) {
     return list.slice().sort(function (a, b) {
       var sa = isSettled(a) ? 1 : 0, sb = isSettled(b) ? 1 : 0;
@@ -51,9 +48,7 @@
     list = list.slice((PAGE - 1) * SIZE, PAGE * SIZE);
     body.innerHTML = list.map(function (g) {
       var kind = g.kind === 'travel' ? t('kind.travel') : t('kind.one_off');
-      var status = isSettled(g)
-        ? '<span class="chip chip-settled">' + esc(t('status.settled')) + '</span>'
-        : '<span class="chip chip-open">' + esc(t('status.open')) + '</span>';
+      var status = stageChip(g.stage);
       var net = BigInt(g.my_net);
       var netTxt = net === 0n ? '<span class="muted">' + esc(t('bal.even')) + '</span>'
         : '<span class="' + (net > 0n ? 'pos' : 'neg') + '">' + signedMoneyHtml(g.my_net, g.currency, g.dp) + '</span>';
