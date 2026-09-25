@@ -26,6 +26,12 @@
   function G() { return S.view.group; }
   function isOpen() { return G().status === 'open'; }
   function isTravel() { return G().kind === 'travel'; }
+  /* A one-off holds one bill and never takes another, so it has no Settle
+     step: it is settled once everyone has paid (payments zero the transfers). */
+  function isSettled() {
+    if (G().status === 'settled') return true;
+    return !isTravel() && S.view.bills.length > 0 && !S.view.transfers.length;
+  }
   function myMember() { return S.view.me ? member(S.view.me) : null; }
   function gmoney(minor) { return money(minor, G().currency, G().dp); }
   function gmoneyHtml(minor) { return moneyHtml(minor, G().currency, G().dp); }
@@ -62,7 +68,7 @@
     var owner = S.view.is_owner && !S.offline;
     document.title = g.name + ' · Split Bill';
     $('g-name').textContent = g.name;
-    $('g-chips').innerHTML = g.status === 'settled'
+    $('g-chips').innerHTML = isSettled()
       ? '<span class="chip chip-settled">' + esc(t('status.settled')) + '</span>'
       : '<span class="chip chip-open">' + esc(t('status.not_settled')) + '</span>';
 
@@ -131,7 +137,10 @@
       html = tr.map(function (x) {
         var paid = x.status === 'paid';
         var btn = '';
-        if (G().status === 'settled' && x.id && S.canRecord(x.from, x.to)) {
+        if (!isTravel() && isOpen() && !x.id && S.canRecord(x.from, x.to)) {
+          // One-off: "Mark Paid" records the payment itself.
+          btn = '<button type="button" class="btn btn-secondary btn-compact" data-xpay="' + esc(x.from + '|' + x.to + '|' + x.amount) + '">' + icon('check') + ' ' + esc(t('xfer.mark_paid')) + '</button>';
+        } else if (G().status === 'settled' && x.id && S.canRecord(x.from, x.to)) {
           btn = paid
             ? '<button type="button" class="btn btn-ghost btn-compact" data-unpaid="' + esc(x.id) + '">' + icon('undo') + ' ' + esc(t('xfer.undo')) + '</button>'
             : '<button type="button" class="btn btn-secondary btn-compact" data-paid="' + esc(x.id) + '">' + icon('check') + ' ' + esc(t('xfer.mark_paid')) + '</button>';
@@ -146,7 +155,7 @@
     var acts = '';
     if (v.is_owner && !S.offline) {
       if (G().status === 'open') {
-        acts = '<button type="button" class="btn btn-primary" id="btn-settle"' + (v.complete ? '' : ' disabled') + '>' + icon('lock') + ' ' + esc(t('grp.settle')) + '</button>';
+        if (isTravel()) acts = '<button type="button" class="btn btn-primary" id="btn-settle"' + (v.complete ? '' : ' disabled') + '>' + icon('lock') + ' ' + esc(t('grp.settle')) + '</button>';
       } else {
         acts = '<button type="button" class="btn btn-ghost" id="btn-reopen">' + icon('unlock') + ' ' + esc(t('grp.reopen')) + '</button>';
       }
@@ -295,6 +304,17 @@
   };
   S.gid = GID;
 
+  /* The currency picker's Recommended: the user's default, this split's
+     currency, then every currency its bills, payments and rates use. */
+  setCurrencyHints(function () {
+    if (!S.view) return [];
+    var out = [S.me && S.me.default_currency, G().currency];
+    S.view.bills.forEach(function (b) { out.push(b.currency); });
+    S.view.payments.forEach(function (p) { out.push(p.currency); });
+    S.view.rates.forEach(function (r) { out.push(r.currency); });
+    return out;
+  });
+
   // ── events ──
   function openBillRow(ev) {
     var tr = ev.target.closest('tr[data-bill]');
@@ -321,6 +341,9 @@
       if (window.openRate) window.openRate();
     } else if (d.paid) {
       S.act('transfer/paid', { transfer_id: d.paid }, t('xfer.paid_toast'), el);
+    } else if (d.xpay) {
+      var xp = d.xpay.split('|');
+      S.act('payment/record', { from: xp[0], to: xp[1], currency: G().currency, amount: xp[2], date: todayIn(G().timezone) }, t('xfer.paid_toast'), el);
     } else if (d.unpaid) {
       S.act('transfer/unpaid', { transfer_id: d.unpaid }, null, el);
     } else if (d.del) {
@@ -470,11 +493,13 @@
     memberOptions($('pay-to'), other ? other.id : null);
     fillCurrencySelect($('pay-currency'), G().currency);
     $('pay-currency').disabled = !isTravel();
+    setAmountAffix($('pay-form'), G().currency);
     $('pay-amount').value = '';
     $('pay-note').value = '';
     $('pay-date').value = todayIn(G().timezone);
     openModal('modal-pay', { initialFocus: '#pay-amount' });
   }
+  $('pay-currency').addEventListener('change', function () { setAmountAffix($('pay-form'), $('pay-currency').value); });
   $('pay-form').addEventListener('submit', function (ev) {
     ev.preventDefault();
     var ccy = $('pay-currency').value;
@@ -628,7 +653,7 @@
     closeModal('modal-manage');
     fillCurrencySelect($('ccy-new'), G().currency);
     renderRates();
-    openModal('modal-ccy', { initialFocus: '#ccy-new' });
+    openModal('modal-ccy', { initialFocus: '#ccy-new-q' });
   });
   $('ccy-new').addEventListener('change', renderRates);
   $('ccy-form').addEventListener('submit', function (ev) {

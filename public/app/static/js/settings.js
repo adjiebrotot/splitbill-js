@@ -8,6 +8,7 @@
     topbarSetUser(me);
     $('set-name').value = me.display_name;
     $('set-lang').value = me.language;
+    setCurrencyHints(function () { return [ME && ME.default_currency]; });
     fillCurrencySelect($('set-currency'), me.default_currency);
     $('set-tz').value = me.timezone;
     $('acct-desc').textContent = '@' + me.username + (me.email ? ' · ' + me.email : '');

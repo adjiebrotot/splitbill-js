@@ -52,6 +52,10 @@ export const STRINGS: Record<string, Entry> = {
   "common.page_of": { en: "Page {0} of {1}", id: "Halaman {0} dari {1}" },
   "common.prev": { en: "Previous page", id: "Halaman sebelumnya" },
   "common.next": { en: "Next page", id: "Halaman berikutnya" },
+  "combo.search": { en: "Search currency", id: "Cari mata uang" },
+  "combo.recommended": { en: "Recommended", id: "Rekomendasi" },
+  "combo.other_currencies": { en: "Other Currencies", id: "Mata Uang Lain" },
+  "combo.no_results": { en: "No results", id: "Tidak ada hasil" },
   "confirm.title": { en: "Are you sure?", id: "Yakin?" },
   "confirm.proceed": { en: "Continue", id: "Lanjutkan" },
 
@@ -87,6 +91,7 @@ export const STRINGS: Record<string, Entry> = {
   // ── home ──
   "home.title": { en: "My splits", id: "Patunganku" },
   "home.splits": { en: "Splits", id: "Patungan" },
+  "home.split_one": { en: "Split One Bill", id: "Bagi Satu Tagihan" },
   "home.new_trip": { en: "New Trip", id: "Perjalanan Baru" },
   "home.new_bill_name": { en: "New bill", id: "Tagihan baru" },
   "home.col_name": { en: "Name", id: "Nama" },

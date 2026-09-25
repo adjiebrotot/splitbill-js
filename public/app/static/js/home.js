@@ -12,7 +12,9 @@
     setTableEmpty(wrap, '');
     body.innerHTML = list.map(function (g) {
       var kind = g.kind === 'travel' ? t('kind.travel') : t('kind.one_off');
-      var status = g.status === 'settled'
+      // A one-off has no Settle step: it is settled once nobody owes anybody.
+      var settled = g.status === 'settled' || (g.kind === 'one_off' && g.bills > 0 && g.owed === 0);
+      var status = settled
         ? '<span class="chip chip-settled">' + esc(t('status.settled')) + '</span>'
         : '<span class="chip chip-open">' + esc(t('status.open')) + '</span>';
       var net = BigInt(g.my_net);
@@ -87,6 +89,13 @@
     renderPeople();
   });
 
+  /* Recommended in the currency picker: the user's default, then the
+     currencies their splits already use. */
+  var GROUPS = [];
+  setCurrencyHints(function () {
+    return [ME && ME.default_currency].concat(GROUPS.map(function (g) { return g.currency; }));
+  });
+
   function openTrip() {
     if (OFFLINE) return showToast(errMsg('offline'), 'error');
     people = [];
@@ -141,6 +150,7 @@
       b.hidden = false;
     }
     showVerify(ME);
-    renderList(r.data.groups || []);
+    GROUPS = r.data.groups || [];
+    renderList(GROUPS);
   });
 }());

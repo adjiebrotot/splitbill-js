@@ -7,33 +7,33 @@
  *   page loads      network first; offline, the page's cached shell, which
  *                   then renders its last boot payload from localStorage.
  */
-const CACHE = 'sb-a40175a4';
+const CACHE = 'sb-6d845cc2';
 const STATIC = [
-  '/app/static/css/shared.css?v=7e1802d8',
+  '/app/static/css/shared.css?v=ebc65269',
   '/app/static/assets/icons.svg?v=17f4531f',
-  '/app/static/js/i18n-all.js?v=7b904aa2',
+  '/app/static/js/i18n-all.js?v=24389694',
   '/app/static/js/boot.js?v=466484cf',
   '/app/static/js/engine.js?v=f52c3ca1',
-  '/app/static/js/ui.js?v=d5b36f67',
+  '/app/static/js/ui.js?v=9a2882a4',
   '/app/static/js/i18n.js?v=3c7c0ae8',
-  '/app/static/js/topbar.js?v=87d85aba',
-  '/app/static/js/currency.js?v=7e4d6b4b',
-  '/app/static/js/home.js?v=f6d8715f',
-  '/app/static/js/group.js?v=464dc3b9',
-  '/app/static/js/bill.js?v=f276cb09',
-  '/app/static/js/settings.js?v=445072ee',
+  '/app/static/js/topbar.js?v=208398f2',
+  '/app/static/js/currency.js?v=06eddacb',
+  '/app/static/js/home.js?v=7d248f2e',
+  '/app/static/js/group.js?v=f9fd6492',
+  '/app/static/js/bill.js?v=bfacd312',
+  '/app/static/js/settings.js?v=df8606be',
   '/app/static/js/join.js?v=20af1930',
   '/app/static/js/auth.js?v=2cde165a',
   '/app/static/js/admin.js?v=30172910',
   '/app/static/icons/icon-192.png?v=34543553',
-  '/app/static/pages/landing.html?v=ae6d9762',
-  '/app/static/pages/login.html?v=cf63a1b7',
-  '/app/static/pages/register.html?v=2f7e7fc9',
-  '/app/static/pages/home.html?v=93d13d69',
-  '/app/static/pages/group.html?v=929d07ac',
-  '/app/static/pages/join.html?v=954fbd9b',
-  '/app/static/pages/settings.html?v=54cc4fb3',
-  '/app/static/pages/admin.html?v=31c401f3',
+  '/app/static/pages/landing.html?v=b9bdc1ce',
+  '/app/static/pages/login.html?v=b68fb1e1',
+  '/app/static/pages/register.html?v=628c604e',
+  '/app/static/pages/home.html?v=804a0045',
+  '/app/static/pages/group.html?v=d71d0311',
+  '/app/static/pages/join.html?v=31761a4c',
+  '/app/static/pages/settings.html?v=45b5b059',
+  '/app/static/pages/admin.html?v=8c315e58',
 ];
 
 /* Which shell a pretty URL is served from (mirrors next.config.mjs rewrites). */

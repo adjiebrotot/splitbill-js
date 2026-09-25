@@ -648,7 +648,6 @@
     .top-bar { padding: 0 12px; }
     .top-bar .top-nav { display: none; }
     .top-bar .logo { font-size: 14px; gap: 6px; }
-    .top-bar .logo span { display: none; }
     .top-bar-right { gap: 0; }
   }
 
@@ -789,7 +788,9 @@
 
   /* Two fields that are one answer: an amount and its currency, a target and
      its date. One column once there is no room for two. */
-  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* Stacked on a phone, the two fields are two blocks: --gap between rows,
+     the same as every other field, and 10px between columns side by side. */
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap) 10px; }
   @media (max-width: 560px) { .form-row { grid-template-columns: 1fr; } }
 
   .tool-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
@@ -1136,12 +1137,31 @@
   .line-row + .chips { margin-top: 6px; }
   .line-row { display: flex; gap: 8px; align-items: center; }
   .line-row input[type=text] { flex: 1 1 auto; min-width: 0; }
-  .line-row .amt { flex: 0 0 130px; text-align: right; font-family: var(--mono); }
+  .line-row .amount-wrap { flex: 0 0 150px; }
+  /* An adjustment row has no name box: its amount takes the rest of the row. */
+  .line-row select + .amount-wrap { flex: 1 1 auto; }
+  .line-row .amt { text-align: right; font-family: var(--mono); }
   .line-row select { flex: 0 0 130px; }
   .pct-row { display: flex; gap: 8px; align-items: center; }
   .pct-row .who { flex: 1 1 auto; font-weight: 600; font-size: 14px; }
   .pct-row input { flex: 0 0 110px; text-align: right; font-family: var(--mono); }
-  @media (max-width: 420px) { .line-row .amt, .line-row select { flex-basis: 108px; } }
+  @media (max-width: 420px) {
+    .line-row .amount-wrap { flex-basis: 130px; }
+    .line-row select + .amount-wrap { flex-basis: auto; }
+    .line-row select { flex-basis: 108px; }
+  }
+
+  /* ── A money box: the currency code sits inside, in front of the figure ──
+     From finance-tracker (.amount-wrap / .amount-affix), minus the metal
+     suffix and the `=` button Split Bill does not have. */
+  .amount-wrap { position: relative; display: flex; align-items: center; }
+  .amount-wrap > input { flex: 1 1 auto; min-width: 0; }
+  .amount-affix {
+    position: absolute; left: 13px;
+    font-size: 11px; font-weight: 700; color: var(--text-muted);
+    letter-spacing: 0.03em; line-height: 1; white-space: nowrap; pointer-events: none;
+  }
+  .amount-wrap.has-prefix > input { padding-left: calc(var(--amt-affix, 0px) + 20px); }
 
   /* One line under the editor that says whether the bill adds up. */
   .reconcile {
@@ -1181,11 +1201,15 @@
   .btn-row .btn { flex: 1 1 auto; }
 
   /* The one photo picker in the bill modal. */
+  /* It is a <label> (it opens the file input), so it drops the label token's
+     caps and bottom margin: it reads as a drop zone, not a field name. */
   .photo-pick {
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-    border: 1.5px dashed var(--border-strong); border-radius: 12px; padding: 18px;
-    color: var(--text-muted); font-size: 13px; cursor: pointer; text-align: center;
+    border: 1.5px dashed var(--border-strong); border-radius: 12px; padding: 20px;
+    color: var(--text-muted); font-size: 14px; font-weight: 600; cursor: pointer; text-align: center;
+    text-transform: none; letter-spacing: normal; margin-bottom: 0;
   }
+  .photo-pick .icon { width: 22px; height: 22px; }
   .photo-pick:hover { background: var(--bg); }
   .photo-thumb { max-width: 100%; max-height: 180px; border-radius: 10px; display: block; margin: 0 auto; }
 
@@ -1207,8 +1231,10 @@
   /* Rare actions, one per row, in a modal. */
   .btn-col { display: flex; flex-direction: column; gap: 10px; }
   .modal-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }
-  /* A modal with no action row still ends 20px under its last block. */
-  .modal-card > .modal-body:last-child { padding-bottom: 24px; }
+  /* A modal with no action row (or with it hidden, as the bill editor's is
+     until there is a form to save) still ends 20px under its last block. */
+  .modal-card > .modal-body:last-child,
+  .modal-card > .modal-body:has(+ .modal-actions[hidden]) { padding-bottom: 24px; }
 
   /* "+" at the end of a chip row: add a person right there. */
   .mchip-add { min-width: 40px; font-size: 16px; line-height: 1; }
@@ -1219,6 +1245,38 @@
     border: 1.5px solid var(--primary-dark); font-size: 13px;
   }
   @media (pointer: coarse) { .mchip-input { min-height: 40px; } }
+
+  /* ── Currency combo (currency.js), from finance-tracker .combo-wrap ──
+     The list is rendered on document.body and placed by placeDropdown (ui.js);
+     its z-index clears .modal-overlay (10000) so it opens above a modal. */
+  .combo-wrap { position: relative; display: block; }
+  .combo-wrap > input[type=text] {
+    padding-right: 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237f8c8d' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    text-overflow: ellipsis;
+  }
+  .combo-wrap > input[type=text]:focus {
+    background-color: #fff;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%235a91e8' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+  }
+  .combo-wrap > input[type=text]:disabled { opacity: 0.6; cursor: not-allowed; }
+  .combo-list {
+    display: none; position: fixed; z-index: 10050; width: max-content;
+    background: var(--surface); border: 1.5px solid var(--primary); border-radius: 10px;
+    box-shadow: var(--shadow); max-height: 210px; overflow-y: auto;
+  }
+  .combo-list.open { display: block; }
+  .combo-item { padding: 9px 13px; font-size: 14px; cursor: pointer; color: var(--text); transition: background 0.12s; }
+  .combo-item:hover, .combo-item.highlighted { background: #eef5ff; color: var(--primary-dark); }
+  .combo-item[aria-selected="true"] { font-weight: 600; }
+  .combo-empty { padding: 9px 13px; font-size: 13px; color: var(--text-muted); font-style: italic; }
+  .combo-sep {
+    padding: 4px 13px; font-size: 11px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+  }
 
   /* Date, currency and receipt total: folded until needed. */
   .more > summary {

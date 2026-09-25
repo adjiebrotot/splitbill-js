@@ -169,6 +169,8 @@ export async function listMyGroups(p: { user_id: string }) {
       bills: s.bills.length,
       spent: c.spent,
       my_net: c.balances.find((b) => b.id === me.id)?.net ?? 0n,
+      // Payments still owed. A one-off has no Settle step: it is settled once this is 0.
+      owed: c.transfers.length,
       created_at: s.group.created_at,
     });
   }
