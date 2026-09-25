@@ -538,6 +538,19 @@
   window.addEventListener('resize', _reflowLists);
 
   window.placeDropdown = placeDropdown;
+
+  /* No browser "saved info" list under our fields: it offers old entries
+     (names, amounts, notes) that have nothing to do with this bill and covers
+     the form. Every field without its own autocomplete gets "off", including
+     ones built later (bill lines, the "+" name box). Fields that ask for one
+     on purpose (username, current-password, new-password) keep it. */
+  function _noAutofill(el) {
+    if ((el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'FORM') && !el.hasAttribute('autocomplete')) {
+      el.setAttribute('autocomplete', 'off');
+    }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('form, input, textarea'), _noAutofill);
+  document.addEventListener('focusin', function (e) { _noAutofill(e.target); }, true);
   window.esc = esc;
   window.icon = icon;
   window.showToast = showToast;
