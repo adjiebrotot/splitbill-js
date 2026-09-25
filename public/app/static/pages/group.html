@@ -11,8 +11,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="/app/static/css/shared.css?v=ebc65269">
-<script src="/app/static/js/i18n-all.js?v=24389694"></script>
+<link rel="stylesheet" href="/app/static/css/shared.css?v=483c784b">
+<script src="/app/static/js/i18n-all.js?v=0ac01415"></script>
 <script src="/app/static/js/boot.js?v=466484cf" data-page="group" data-auth="1"></script>
 </head>
 <body>
@@ -35,18 +35,25 @@
       <button type="button" class="btn btn-primary btn-full page-action" id="btn-add-bill" hidden><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-plus"></use></svg> <span data-i18n="bill.add">Add Bill</span></button>
 
       <section class="tool-card" id="card-bills">
-        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-receipt"></use></svg> <span data-i18n="bill.title_list">Bills</span></h2>
+        <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-receipt"></use></svg> <span id="bills-title" data-i18n="bill.title_list">Bills</span> <span id="bill-one-title" hidden></span>
+          <span class="tool-head-actions" id="bill-one-actions" hidden></span>
+        </h2>
+        <!-- A one-off holds one bill, so the card IS that bill: its lines. -->
+        <p class="card-desc" id="bill-one-meta" hidden></p>
+        <div class="tool-tbl-wrap" id="bill-one-wrap" hidden>
+          <table class="tool-tbl"><tbody id="bill-one-body"></tbody></table>
+        </div>
         <div class="tool-tbl-wrap" id="bills-wrap">
           <table class="tool-tbl">
             <thead><tr>
               <th data-i18n="bill.col_what">Bill</th>
               <th class="num" data-i18n="bill.col_total">Total</th>
-              <th class="num" data-i18n="bill.col_mine">My share</th>
+              <th class="num" data-i18n="bill.col_mine">My expense</th>
             </tr></thead>
             <tbody id="bills-body"></tbody>
           </table>
         </div>
-          <div class="tool-pagination" id="bills-pager" hidden></div>
+        <div class="tool-pagination" id="bills-pager" hidden></div>
       </section>
 
       <!-- Who pays whom; the per-member table sits behind Details. -->
@@ -214,7 +221,7 @@
             <thead><tr>
               <th data-i18n="bal.member">Member</th>
               <th class="num" data-i18n="bal.paid">Paid</th>
-              <th class="num" data-i18n="bal.share">Share</th>
+              <th class="num" data-i18n="bal.share">Expense</th>
               <th class="num"><span data-i18n="bal.net">Balance</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="bal.net_tip" data-tip="Plus: gets money back. Minus: owes money.">?</span></th>
             </tr></thead>
             <tbody id="bal-body"></tbody>
@@ -375,7 +382,7 @@
           <label for="report-member" data-i18n="bal.member">Member</label>
           <select id="report-member"></select>
         </div>
-        <textarea id="report-text" class="report-text" readonly></textarea>
+        <div class="report-view" id="report-view" aria-live="polite"></div>
         <div class="btn-row">
           <button type="button" class="btn btn-secondary" id="report-copy"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-copy"></use></svg> <span data-i18n="common.copy">Copy</span></button>
           <button type="button" class="btn btn-secondary" id="report-png"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-download"></use></svg> PNG</button>
@@ -390,7 +397,7 @@
   <script src="/app/static/js/i18n.js?v=3c7c0ae8"></script>
   <script src="/app/static/js/topbar.js?v=208398f2"></script>
   <script src="/app/static/js/currency.js?v=06eddacb"></script>
-  <script src="/app/static/js/group.js?v=f9fd6492"></script>
+  <script src="/app/static/js/group.js?v=9009f461"></script>
   <script src="/app/static/js/bill.js?v=bfacd312"></script>
 </body>
 </html>

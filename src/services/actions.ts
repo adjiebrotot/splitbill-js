@@ -172,9 +172,22 @@ export async function listMyGroups(p: { user_id: string }) {
       // Payments still owed. A one-off has no Settle step: it is settled once this is 0.
       owed: c.transfers.length,
       created_at: s.group.created_at,
+      // Newest activity: the last bill or payment written, else the split itself.
+      last_at: _lastActivity(s),
     });
   }
   return out;
+}
+
+function _lastActivity(s: GroupState): string {
+  let best = String(s.group.created_at);
+  let bestT = Date.parse(best) || 0;
+  const stamps = [...s.bills.map((b) => b.updated_at ?? b.created_at), ...s.payments.map((p) => p.created_at)];
+  for (const at of stamps) {
+    const tm = Date.parse(String(at));
+    if (tm > bestT) { bestT = tm; best = String(at); }
+  }
+  return best;
 }
 
 // ── groups ──────────────────────────────────────────────────────────────────
@@ -1010,7 +1023,7 @@ export async function getReport(p: { user_id: string; group_id: unknown; type?: 
     const bytes = p.format === "png" ? await bin.renderPng(doc) : await bin.renderPdf(doc);
     return { kind: "file" as const, bytes, filename: `${base}.${p.format}`, type: p.format === "png" ? "image/png" : "application/pdf" };
   }
-  return { kind: "text" as const, text: renderText(doc), filename: `${base}.txt` };
+  return { kind: "text" as const, text: renderText(doc), doc, filename: `${base}.txt` };
 }
 
 // ── AI drafts (chat text, receipt photo) ────────────────────────────────────

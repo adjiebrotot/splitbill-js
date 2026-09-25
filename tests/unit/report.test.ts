@@ -89,7 +89,7 @@ describe("reports", () => {
         for (const l of bills.lines) {
           if (!l.indent) { sum = 0n; continue; }
           const val = BigInt((l.right ?? "0").replace(/^[A-Z]{3} /, "").split(" ")[0].replace(/[,.]/g, ""));
-          if (l.text === "your share") expect(val, `seed ${seed} member ${m.id}`).toBe(sum);
+          if (l.text === "your expense") expect(val, `seed ${seed} member ${m.id}`).toBe(sum);
           else sum += val;
         }
       }

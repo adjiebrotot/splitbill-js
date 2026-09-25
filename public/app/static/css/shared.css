@@ -1197,6 +1197,34 @@
     width: 100%; min-height: 260px; font-family: var(--mono); font-size: 12px;
     line-height: 1.5; white-space: pre-wrap; resize: vertical;
   }
+  /* The report, read in the modal: the page's own tiles and tables, the
+     same document the PNG and PDF draw. */
+  .report-view > * + * { margin-top: var(--gap); }
+  .report-view > .report-sub + .tool-tbl-wrap { margin-top: 6px; }
+  .rpt-head .rpt-title { font-size: 15px; font-weight: 600; }
+  .rpt-head .chip { margin-top: 6px; }
+  .report-view .tool-tbl td.indent { padding-left: 20px; }
+  .report-view .tool-tbl tr.strong td { font-weight: 700; }
+  .report-view .tool-tbl tr.muted td { color: var(--text-muted); }
+  .rpt-brand {
+    padding-top: var(--gap); border-top: 1px solid var(--border);
+    text-align: center; font-size: 13px; color: var(--text-muted);
+  }
+  .rpt-brand strong { color: var(--primary-ink); }
+
+  /* A one-off's bill card: its total closes the lines. */
+  .tool-card > .card-desc { font-size: 13px; color: var(--text-muted); margin-top: 4px; line-height: 1.5; }
+  .tool-tbl tr.total-row td { font-weight: 700; border-top: 2px solid var(--border); }
+
+  /* A card that folds to its title (Confirm your email). */
+  .collapse-card > summary {
+    display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+  }
+  .collapse-card > summary::-webkit-details-marker { display: none; }
+  .collapse-card > summary h2 { flex: 1 1 auto; }
+  .collapse-card > summary .icon { color: var(--text-muted); transition: transform 0.15s; }
+  .collapse-card[open] > summary .icon { transform: rotate(180deg); }
+
   .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn-row .btn { flex: 1 1 auto; }
 

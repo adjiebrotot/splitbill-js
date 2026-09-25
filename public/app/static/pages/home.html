@@ -11,8 +11,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="/app/static/css/shared.css?v=ebc65269">
-<script src="/app/static/js/i18n-all.js?v=24389694"></script>
+<link rel="stylesheet" href="/app/static/css/shared.css?v=483c784b">
+<script src="/app/static/js/i18n-all.js?v=0ac01415"></script>
 <script src="/app/static/js/boot.js?v=466484cf" data-page="home" data-auth="1"></script>
 </head>
 <body>
@@ -21,23 +21,27 @@
     <div class="settings-wrap">
       <div class="settings-header"><h1 data-i18n="home.title">My splits</h1></div>
       <div class="banner warn" id="offline-banner" hidden></div>
-      <div class="settings-card" id="verify-card" hidden>
-        <h2 data-i18n="verify.title">Confirm your email</h2>
-        <p class="card-desc" id="verify-desc"></p>
-        <div class="field">
-          <label for="verify-code" data-i18n="verify.code">Code</label>
-          <input type="text" id="verify-code" class="code-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+      <!-- Folds away; the choice is remembered on this device. -->
+      <details class="settings-card collapse-card" id="verify-card" hidden open>
+        <summary><h2 data-i18n="verify.title">Confirm your email</h2> <svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-chevron-down"></use></svg></summary>
+        <div class="stack">
+          <p class="card-desc" id="verify-desc"></p>
+          <div class="field">
+            <label for="verify-code" data-i18n="verify.code">Code</label>
+            <input type="text" id="verify-code" class="code-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn btn-ghost" id="verify-resend" data-i18n="verify.resend">Send Again</button>
+            <button type="button" class="btn btn-primary" id="verify-btn" data-i18n="verify.confirm">Confirm</button>
+          </div>
         </div>
-        <div class="btn-row">
-          <button type="button" class="btn btn-ghost" id="verify-resend" data-i18n="verify.resend">Send Again</button>
-          <button type="button" class="btn btn-primary" id="verify-btn" data-i18n="verify.confirm">Confirm</button>
-        </div>
-      </div>
+      </details>
       <!-- The one thing done most: a bill, straight away. -->
       <button type="button" class="btn btn-primary btn-full page-action" id="new-bill"><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-receipt"></use></svg> <span data-i18n="home.split_one">Split One Bill</span></button>
       <section class="tool-card">
         <h2><svg class="icon" aria-hidden="true"><use href="/app/static/assets/icons.svg?v=17f4531f#i-list"></use></svg> <span data-i18n="home.splits">Splits</span>
           <span class="tool-head-actions">
+            <button type="button" class="btn btn-ghost btn-compact" id="splits-sort" data-i18n-aria="home.sort" aria-label="Sort" hidden></button>
             <button type="button" class="btn btn-ghost btn-compact" id="new-trip">+ <span data-i18n="home.new_trip">New Trip</span></button>
           </span>
         </h2>
@@ -51,6 +55,7 @@
             <tbody id="splits-body"></tbody>
           </table>
         </div>
+        <div class="tool-pagination" id="splits-pager" hidden></div>
       </section>
     </div>
   </main>
@@ -90,6 +95,6 @@
   <script src="/app/static/js/i18n.js?v=3c7c0ae8"></script>
   <script src="/app/static/js/topbar.js?v=208398f2"></script>
   <script src="/app/static/js/currency.js?v=06eddacb"></script>
-  <script src="/app/static/js/home.js?v=7d248f2e"></script>
+  <script src="/app/static/js/home.js?v=cfe7b2e6"></script>
 </body>
 </html>

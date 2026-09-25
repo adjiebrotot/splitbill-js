@@ -29,8 +29,13 @@ export interface ReportDoc {
   settled: boolean;
   summary: [string, string][];
   sections: Section[];
+  /** "Made with" in the reader's language; `brand` follows it. */
   footer: string;
+  brand: string;
 }
+
+/** Where the app lives, printed at the foot of every report. */
+export const BRAND = "splitbill.adjiebrotots.com";
 
 type View = GroupView;
 
@@ -129,6 +134,7 @@ export function groupReport(v: View, lang: string, now = new Date()): ReportDoc 
     ],
     sections,
     footer: t("rpt.footer", lang),
+    brand: BRAND,
   };
 }
 
@@ -228,6 +234,7 @@ export function memberReport(v: View, memberId: string, lang: string, now = new 
     ],
     sections,
     footer: t("rpt.footer", lang),
+    brand: BRAND,
   };
 }
 
@@ -251,6 +258,6 @@ export function renderText(doc: ReportDoc): string {
     }
   }
   out.push("");
-  out.push(doc.footer);
+  out.push(`${doc.footer} ${doc.brand}`);
   return out.join("\n");
 }

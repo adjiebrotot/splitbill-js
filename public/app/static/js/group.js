@@ -175,6 +175,13 @@
   function renderBills() {
     var v = S.view;
     var wrap = $('bills-wrap');
+    var one = !isTravel();
+    $('bills-title').hidden = one;
+    $('bill-one-title').hidden = !one;
+    $('bill-one-actions').hidden = !one;
+    if (one) { wrap.style.display = 'none'; $('bills-pager').hidden = true; return renderOneBill(); }
+    $('bill-one-meta').hidden = true;
+    $('bill-one-wrap').hidden = true;
     if (!v.bills.length) { setTableEmpty(wrap, t('bill.empty')); $('bills-pager').hidden = true; return; }
     setTableEmpty(wrap, '');
     var list = v.bills.slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : Number(b.id) - Number(a.id); });
@@ -188,6 +195,52 @@
         '<td class="num">' + moneyHtml(b.total, b.currency, b.dp) + conv + '</td>' +
         '<td class="num">' + (mine == null ? '<span class="muted">-</span>' : moneyHtml(mine, b.currency, b.dp, { plain: true })) + '</td></tr>';
     }).join('');
+  }
+
+  /* A one-off holds one bill, so its card is that bill: the lines it was
+     split by (items, or each person's share) and the total. Every figure is
+     the engine's; the pencil (or eye) opens the editor. */
+  function renderOneBill() {
+    var v = S.view;
+    var b = v.bills[0];
+    var wrap = $('bill-one-wrap');
+    if (!b) {
+      $('bill-one-title').textContent = t('bill.view');
+      $('bill-one-actions').innerHTML = '';
+      $('bill-one-meta').hidden = true;
+      wrap.hidden = false;
+      setTableEmpty(wrap, t('bill.empty'));
+      return;
+    }
+    setTableEmpty(wrap, '');
+    wrap.hidden = false;
+    var canEdit = S.canEditBill(b);
+    $('bill-one-title').textContent = b.description;
+    $('bill-one-actions').innerHTML = '<button type="button" class="btn btn-ghost btn-compact btn-icon" data-bill-open="' + esc(b.id) + '" aria-label="' +
+      esc(t(canEdit ? 'bill.edit' : 'bill.view')) + '">' + icon(canEdit ? 'pencil' : 'eye') + '</button>';
+    $('bill-one-meta').textContent = fmtDate(b.date) + ' · ' + t('bill.paid_by_x', nameOf(b.payer));
+    $('bill-one-meta').hidden = false;
+    var amt = function (x) { return moneyHtml(x, b.currency, b.dp, { plain: true }); };
+    var names = function (ids) { return ids.map(nameOf).join(', '); };
+    var rows = [];
+    if (b.mode === 'items') {
+      b.items.forEach(function (i) {
+        rows.push('<tr><td>' + esc(i.name) + '<div class="tool-sub">' + esc(names(i.members)) + '</div></td><td class="num">' + amt(i.amount) + '</td></tr>');
+      });
+      b.adjustments.forEach(function (a) {
+        rows.push('<tr><td>' + esc(t('adj.' + a.kind)) + '</td><td class="num">' + amt(a.amount) + '</td></tr>');
+      });
+    } else {
+      b.participants.forEach(function (p) {
+        var sh = b.shares[p.member];
+        var sub = b.mode === 'percent' && p.bp != null ? '<div class="tool-sub">' + esc((p.bp / 100).toFixed(2).replace(/\.?0+$/, '')) + '%</div>' : '';
+        rows.push('<tr><td>' + esc(nameOf(p.member)) + sub + '</td><td class="num">' + (sh ? amt(sh[0]) : '<span class="muted">-</span>') + '</td></tr>');
+      });
+    }
+    var conv = b.currency !== G().currency && b.converted != null ? '<div class="tool-sub">' + gmoneyHtml(b.converted) + '</div>' : '';
+    rows.push('<tr class="total-row"><td>' + esc(t('bill.total')) + '</td><td class="num">' + moneyHtml(b.total, b.currency, b.dp) + conv + '</td></tr>');
+    if (b.error) rows.push('<tr><td colspan="2" class="neg">' + esc(errMsg(b.error.code, b.error.params)) + '</td></tr>');
+    $('bill-one-body').innerHTML = rows.join('');
   }
 
   function renderPayments() {
@@ -322,6 +375,11 @@
     var b = S.view.bills.filter(function (x) { return x.id === tr.dataset.bill; })[0];
     if (b) window.openBill(b.id, !S.canEditBill(b));
   }
+  $('bill-one-actions').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-bill-open]');
+    var b = btn && S.view && S.view.bills[0];
+    if (b && window.openBill) window.openBill(b.id, !S.canEditBill(b));
+  });
   $('bills-body').addEventListener('click', openBillRow);
   $('bills-body').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') openBillRow(ev); });
 
@@ -669,11 +727,12 @@
   });
 }());
 
-/* ── Report modal: text preview, Copy, PNG, PDF ── */
+/* ── Report modal: the report as tables, Copy (the PNG), PNG, PDF ── */
 (function () {
   var S = window.SB;
   var $ = function (id) { return document.getElementById(id); };
   var type = 'group';
+  var TEXT = '';
 
   function query(format) {
     var q = 'report?group_id=' + encodeURIComponent(S.gid) + '&type=' + type + '&format=' + format + '&lang=' + (window.__LANG__ || 'en');
@@ -681,11 +740,46 @@
     return q;
   }
 
+  /* The server's report document, drawn with the page's own table chrome.
+     Every figure arrives formatted; nothing is computed here. */
+  function docHtml(doc) {
+    var h = '<div class="rpt-head"><div class="rpt-title">' + esc(doc.title) + '</div>' +
+      '<div class="tool-sub">' + esc(doc.subtitle) + '</div>' +
+      '<span class="chip ' + (doc.settled ? 'chip-settled' : 'chip-open') + '">' + esc(doc.status) + '</span></div>';
+    if (doc.summary.length) {
+      h += '<div class="tool-summary">' + doc.summary.map(function (kv) {
+        return '<div class="tool-tile"><div class="lbl">' + esc(kv[0]) + '</div><div class="val">' + esc(kv[1]) + '</div></div>';
+      }).join('') + '</div>';
+    }
+    doc.sections.forEach(function (sec) {
+      h += '<h3 class="report-sub">' + esc(sec.heading) + '</h3><div class="tool-tbl-wrap"><table class="tool-tbl">';
+      if (sec.kind === 'table') {
+        h += '<thead><tr>' + sec.columns.map(function (c, i) {
+          return '<th' + (sec.right[i] ? ' class="num"' : '') + '>' + esc(c) + '</th>';
+        }).join('') + '</tr></thead><tbody>' + sec.rows.map(function (r) {
+          return '<tr>' + r.map(function (c, i) { return '<td' + (sec.right[i] ? ' class="num"' : '') + '>' + esc(c) + '</td>'; }).join('') + '</tr>';
+        }).join('') + '</tbody>';
+      } else {
+        h += '<tbody>' + sec.lines.map(function (l) {
+          var cls = (l.muted ? ' muted' : '') + (l.bold ? ' strong' : '');
+          return '<tr class="' + cls.trim() + '"><td' + (l.indent ? ' class="indent"' : '') + (l.right ? '' : ' colspan="2"') + '>' + esc(l.text) + '</td>' +
+            (l.right ? '<td class="num">' + esc(l.right) + '</td>' : '') + '</tr>';
+        }).join('') + '</tbody>';
+      }
+      h += '</table></div>';
+    });
+    h += '<div class="rpt-brand">' + esc(doc.footer) + ' <strong>' + esc(doc.brand) + '</strong></div>';
+    return h;
+  }
+
   function load() {
     $('report-member-field').hidden = type !== 'member';
-    $('report-text').value = t('input.reading');
+    $('report-view').innerHTML = '<div class="tool-empty">' + esc(t('input.reading')) + '</div>';
+    TEXT = '';
     api(query('text')).then(function (r) {
-      $('report-text').value = r.ok ? r.data.text : errMsg(r.code, r.params);
+      if (!r.ok) { $('report-view').innerHTML = '<div class="tool-empty">' + esc(errMsg(r.code, r.params)) + '</div>'; return; }
+      TEXT = r.data.text;
+      $('report-view').innerHTML = docHtml(r.data.doc);
     });
   }
 
@@ -707,12 +801,37 @@
     if (b) setType(b.getAttribute('data-rtype'));
   });
   $('report-member').addEventListener('change', load);
-  $('report-copy').addEventListener('click', function () { S.copyText($('report-text').value); });
+
+  function fetchFile(format) {
+    return fetch('/app/api/' + query(format), { credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) return r.json().then(function (j) { throw j; });
+      return r;
+    });
+  }
+
+  /* Copy puts the PNG on the clipboard, ready to paste into a chat. The
+     ClipboardItem takes the promise itself, so Safari still counts the click
+     as the gesture. A browser with no image clipboard gets the text. */
+  $('report-copy').addEventListener('click', function (ev) {
+    var btn = ev.currentTarget;
+    if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) {
+      return S.copyText(TEXT, t('rpt.copied_text'));
+    }
+    setBusy(btn, true);
+    var png = fetchFile('png').then(function (r) { return r.blob(); }).then(function (b) { return new Blob([b], { type: 'image/png' }); });
+    var failed = null;
+    png.catch(function (j) { failed = j; });
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]).then(function () {
+      showToast(t('rpt.copied_image'));
+    }, function () {
+      if (failed) return showToast(errMsg((failed && failed.code) || 'network', failed && failed.params), 'error');
+      S.copyText(TEXT, t('rpt.copied_text'));
+    }).then(function () { setBusy(btn, false); });
+  });
 
   function download(format, btn) {
     setBusy(btn, true);
-    fetch('/app/api/' + query(format), { credentials: 'same-origin' }).then(function (r) {
-      if (!r.ok) return r.json().then(function (j) { throw j; });
+    fetchFile(format).then(function (r) {
       var name = (r.headers.get('content-disposition') || '').replace(/^.*filename="([^"]+)".*$/, '$1') || ('report.' + format);
       return r.blob().then(function (b) {
         var file = new File([b], name, { type: b.type });
