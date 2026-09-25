@@ -80,8 +80,7 @@ addRoutes({
     } catch (e) {
       if (!(e instanceof MigrationError)) throw e;
       console.error("[migrate]", e.cause);
-      const detail = String((e.cause as Error)?.message ?? e.cause);
-      return json({ ok: false, code: "migration_failed", params: { name: e.migration, detail } }, 500);
+      return json({ ok: false, code: "migration_failed", params: { name: e.migration, detail: e.detail } }, 500);
     }
   },
 });

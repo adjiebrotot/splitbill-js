@@ -338,7 +338,7 @@ export async function applyMigrations() {
     // Admin-only screen: show Postgres's own message so the cause is visible.
     if (e instanceof MigrationError) {
       console.error("[migrate]", e.cause);
-      fail("migration_failed", { name: e.migration, detail: String((e.cause as Error)?.message ?? e.cause) }, 500);
+      fail("migration_failed", { name: e.migration, detail: e.detail }, 500);
     }
     throw e;
   });

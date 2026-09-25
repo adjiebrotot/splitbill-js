@@ -72,6 +72,14 @@ describe.skipIf(!URL)("migrations against Postgres", () => {
     expect(rows.map((r) => r[0])).toEqual(names());
   });
 
+  it("a bookkeeping failure is a MigrationError with Postgres's message and SQLSTATE", async () => {
+    await db.executeScript("DROP SCHEMA IF EXISTS t_migrate CASCADE; CREATE SCHEMA t_migrate; CREATE TABLE schema_migrations (version TEXT);");
+    const e = await M.runMigrations().then(() => null, (x) => x);
+    expect(e).toBeInstanceOf(M.MigrationError);
+    expect(e.migration).toBe(M.BOOKKEEPING);
+    expect(e.detail).toMatch(/column "filename" does not exist \[42703\]/);
+  });
+
   it("refuses a same-named table from another app and names the file", async () => {
     await db.executeScript("DROP SCHEMA IF EXISTS t_migrate CASCADE; CREATE SCHEMA t_migrate; CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT);");
     const e = await M.runMigrations().then(() => null, (x) => x);

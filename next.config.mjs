@@ -4,7 +4,13 @@ const nextConfig = {
   poweredByHeader: false,
   // Native modules webpack cannot bundle: required at runtime from
   // node_modules and traced into the function.
-  serverExternalPackages: ["@napi-rs/canvas", "@node-rs/bcrypt", "pg"],
+  //
+  // `ws` (the Neon driver's WebSocket, so every transaction) must stay out
+  // too: bundled, webpack turns its optional `require("bufferutil")` into an
+  // empty module, ws takes that for the native addon, and every frame of 48+
+  // bytes throws "b.mask is not a function". Reads go over HTTP and still
+  // work, so only writes and migrations fail. tests/unit/next_config.test.ts.
+  serverExternalPackages: ["@napi-rs/canvas", "@node-rs/bcrypt", "pg", "ws"],
   // Report fonts are read from disk at render time (src/services/report_binary.ts).
   // Only the routes that can emit a PNG/PDF trace them in.
   outputFileTracingIncludes: {
