@@ -235,12 +235,12 @@
       if (stated != null) {
         var diff = BigInt(stated) - sum;
         rec.className = 'reconcile ' + (diff === 0n ? 'good' : 'bad');
-        rec.innerHTML = '<span>' + esc(t('bill.lines_total')) + ' ' + esc(money(sum.toString(), c, d)) + '</span>' +
-          '<span>' + (diff === 0n ? esc(t('bill.matches')) : esc(t('bill.diff')) + ' ' + esc(signedMoney(diff.toString(), c, d)) +
+        rec.innerHTML = '<span>' + esc(t('bill.lines_total')) + ' ' + moneyHtml(sum.toString(), c, d) + '</span>' +
+          '<span>' + (diff === 0n ? esc(t('bill.matches')) : esc(t('bill.diff')) + ' ' + signedMoneyHtml(diff.toString(), c, d) +
             ' <button type="button" class="btn btn-ghost btn-compact" id="add-diff">' + esc(t('bill.add_diff')) + '</button>') + '</span>';
       } else {
         rec.className = 'reconcile';
-        rec.innerHTML = '<span>' + esc(t('bill.total')) + '</span><span>' + esc(money(sum.toString(), c, d)) + '</span>';
+        rec.innerHTML = '<span>' + esc(t('bill.total')) + '</span><span>' + moneyHtml(sum.toString(), c, d) + '</span>';
       }
     } else if (B.mode === 'percent') {
       var bp = 0;
@@ -249,7 +249,7 @@
       rec.innerHTML = '<span>' + esc(t('bill.pct_total')) + '</span><span>' + esc(E.formatPercent(bp, window.__LANG__)) + '% / 100%</span>';
     } else {
       rec.className = 'reconcile';
-      rec.innerHTML = '<span>' + esc(t('bill.total')) + '</span><span>' + esc(money(built.bill.total.toString(), c, d)) + '</span>';
+      rec.innerHTML = '<span>' + esc(t('bill.total')) + '</span><span>' + moneyHtml(built.bill.total.toString(), c, d) + '</span>';
     }
 
     try {
@@ -290,7 +290,7 @@
     pv.innerHTML = '<div class="report-sub">' + esc(t('bill.shares')) + '</div>' + rows.map(function (r) {
       var cm = conv ? conv.get(r[0]) : null;
       return '<div class="preview-row"><span>' + esc(S.nameOf(r[0])) + (r[0] === built.bill.payer ? ' <span class="chip">' + esc(t('bill.paid_chip')) + '</span>' : '') + '</span>' +
-        '<span class="mono">' + esc(money(r[1].toString(), c, d)) + (cm != null ? ' · ' + esc(money(cm.toString(), G().currency, G().dp)) : '') + '</span></div>';
+        '<span class="mono">' + moneyHtml(r[1].toString(), c, d) + (cm != null ? ' · ' + moneyHtml(cm.toString(), G().currency, G().dp) : '') + '</span></div>';
     }).join('') + (note ? '<div class="preview-note">' + esc(note) + '</div>' : '');
 
     ok = !!$('bill-desc').value.trim() && !!$('bill-date').value && !!B.payer;

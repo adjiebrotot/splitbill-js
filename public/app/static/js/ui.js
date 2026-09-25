@@ -241,6 +241,39 @@
   window.setTableEmpty = setTableEmpty;
 }());
 
+/* ── PAGINATION FOR A CARD'S TABLE ─────────────────────────────────────────
+   One pager for every paged list: "1-10 of 23" and ‹ Page 1 of 3 › in the
+   card's own .tool-pagination (the chrome is shared.css). The caller slices
+   its rows; this draws the controls, clamps the page and calls go(page).
+   A list that fits on one page shows no pager at all.
+
+     var page = renderPager(el, page, rows.length, 10, function (p) { ...; });
+     rows.slice((page - 1) * 10, page * 10) */
+(function () {
+  function renderPager(el, page, total, size, go) {
+    var pages = Math.max(1, Math.ceil(total / size));
+    page = Math.min(Math.max(1, page || 1), pages);
+    if (!el) return page;
+    if (pages <= 1) { el.hidden = true; el.innerHTML = ''; return page; }
+    var from = (page - 1) * size + 1;
+    var to = Math.min(total, page * size);
+    el.hidden = false;
+    el.innerHTML =
+      '<div class="tool-pagination-top"><span class="tool-page-info">' + esc(t('common.page_info', from, to, total)) + '</span>' +
+      '<div class="tool-page-btns">' +
+        '<button type="button" class="btn btn-ghost btn-compact btn-icon" data-go="' + (page - 1) + '" aria-label="' + esc(t('common.prev')) + '"' + (page <= 1 ? ' disabled' : '') + '>' + icon('arrow-left') + '</button>' +
+        '<span class="tool-page-num">' + esc(t('common.page_of', page, pages)) + '</span>' +
+        '<button type="button" class="btn btn-ghost btn-compact btn-icon" data-go="' + (page + 1) + '" aria-label="' + esc(t('common.next')) + '"' + (page >= pages ? ' disabled' : '') + '>' + icon('arrow-right') + '</button>' +
+      '</div></div>';
+    el.onclick = function (ev) {
+      var b = ev.target.closest('[data-go]');
+      if (b && !b.disabled) go(Number(b.getAttribute('data-go')));
+    };
+    return page;
+  }
+  window.renderPager = renderPager;
+}());
+
 /* ── GLOBAL TOOLTIP ────────────────────────────────────────────────────────
    One driver for every `[data-tip]` on the page, anchored to a single fixed
    #globalTooltip overlay so a tooltip is never clipped by a scrolling table
@@ -384,18 +417,33 @@
   function E() { return window.SBEngine; }
   function lang() { return window.__LANG__ || 'en'; }
 
-  /* "1,234.50 USD" from a minor-unit string. */
+  /* "USD 1,234.50" from a minor-unit string: the currency always leads.
+     Plain text, for sentences and titles. */
   function money(minor, ccy, dp, opts) {
     if (minor == null) return '-';
     var s = E().formatAmount(BigInt(minor), dp, lang());
-    return (opts && opts.plain) ? s : s + ' ' + ccy;
+    return (opts && opts.plain) ? s : ccy + ' ' + s;
   }
 
-  /* Signed version: "+1,234.50" / "-1,234.50". */
+  /* Signed version: "USD +1,234.50" / "USD -1,234.50". */
   function signed(minor, ccy, dp) {
     var v = BigInt(minor);
     var s = E().formatAmount(v < 0n ? -v : v, dp, lang());
-    return (v > 0n ? '+' : v < 0n ? '-' : '') + s + ' ' + ccy;
+    return ccy + ' ' + (v > 0n ? '+' : v < 0n ? '-' : '') + s;
+  }
+
+  /* The same as markup: the code in the text font, quieter than the figure
+     it labels (.ccy), because the figure is what is read. Escaped. */
+  function ccyTag(ccy) { return '<span class="ccy">' + esc(ccy) + '</span>'; }
+  function moneyHtml(minor, ccy, dp, opts) {
+    if (minor == null) return '-';
+    var s = E().formatAmount(BigInt(minor), dp, lang());
+    return (opts && opts.plain) ? esc(s) : ccyTag(ccy) + esc(s);
+  }
+  function signedHtml(minor, ccy, dp) {
+    var v = BigInt(minor);
+    var s = E().formatAmount(v < 0n ? -v : v, dp, lang());
+    return ccyTag(ccy) + (v > 0n ? '+' : v < 0n ? '-' : '') + esc(s);
   }
 
   /* Typed text -> minor-unit string, or throws EngineError. */
@@ -449,6 +497,8 @@
   window.setBusy = setBusy;
   window.money = money;
   window.signedMoney = signed;
+  window.moneyHtml = moneyHtml;
+  window.signedMoneyHtml = signedHtml;
   window.parseMoney = parseMoney;
   window.plainMoney = plainMoney;
   window.ccyName = ccyName;

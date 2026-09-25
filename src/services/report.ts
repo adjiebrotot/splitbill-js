@@ -35,13 +35,13 @@ export interface ReportDoc {
 type View = GroupView;
 
 function money(minor: unknown, ccy: string, dp: number, lang: string): string {
-  return `${formatAmount(BigInt(String(minor)), dp, lang)} ${ccy}`;
+  return `${ccy} ${formatAmount(BigInt(String(minor)), dp, lang)}`;
 }
 
 function signed(minor: unknown, ccy: string, dp: number, lang: string): string {
   const v = BigInt(String(minor));
   const s = formatAmount(v < 0n ? -v : v, dp, lang);
-  return `${v > 0n ? "+" : v < 0n ? "-" : ""}${s} ${ccy}`;
+  return `${ccy} ${v > 0n ? "+" : v < 0n ? "-" : ""}${s}`;
 }
 
 function fmtDate(iso: string, lang: string, tz?: string): string {
@@ -94,9 +94,9 @@ export function groupReport(v: View, lang: string, now = new Date()): ReportDoc 
       const row = [nm.get(b.id) ?? "?", formatAmount(BigInt(String(b.paid)), g.dp, lang), formatAmount(BigInt(String(b.share)), g.dp, lang)];
       if (hasPayments) {
         const pay = BigInt(String(b.sent)) - BigInt(String(b.received));
-        row.push(pay === 0n ? "-" : signed(pay, g.currency, g.dp, lang).replace(` ${g.currency}`, ""));
+        row.push(pay === 0n ? "-" : signed(pay, g.currency, g.dp, lang).replace(`${g.currency} `, ""));
       }
-      row.push(signed(b.net, g.currency, g.dp, lang).replace(` ${g.currency}`, ""));
+      row.push(signed(b.net, g.currency, g.dp, lang).replace(`${g.currency} `, ""));
       return row;
     });
   const columns = [t("rpt.col_member", lang), t("rpt.col_paid", lang), t("rpt.col_share", lang)];

@@ -3,6 +3,10 @@
  * (bill.js), which runs the same engine in the browser. */
 (function () {
   var S = { view: null, me: null, offline: false };
+  // Page per list, and how many rows a page holds. Payments and Members
+  // share a row of the layout, so they page alike and stand the same height.
+  var PAGE = { bills: 1, pay: 1, mem: 1 };
+  var SIZE = { bills: 10, pay: 5, mem: 5 };
   window.SB = S;
 
   var $ = function (id) { return document.getElementById(id); };
@@ -24,6 +28,7 @@
   function isTravel() { return G().kind === 'travel'; }
   function myMember() { return S.view.me ? member(S.view.me) : null; }
   function gmoney(minor) { return money(minor, G().currency, G().dp); }
+  function gmoneyHtml(minor) { return moneyHtml(minor, G().currency, G().dp); }
 
   S.member = member;
   S.nameOf = nameOf;
@@ -98,11 +103,11 @@
     $('card-balances').hidden = !v.bills.length && !v.payments.length;
     var mine = null;
     for (var i = 0; i < v.balances.length; i++) if (v.balances[i].id === v.me) mine = v.balances[i];
-    var tiles = '<div class="tool-tile"><div class="lbl">' + esc(t('bal.spent')) + '</div><div class="val">' + esc(gmoney(v.spent)) + '</div></div>';
+    var tiles = '<div class="tool-tile"><div class="lbl">' + esc(t('bal.spent')) + '</div><div class="val">' + gmoneyHtml(v.spent) + '</div></div>';
     if (mine) {
       var n = BigInt(mine.net);
       tiles += '<div class="tool-tile"><div class="lbl">' + esc(t(n > 0n ? 'bal.you_get' : n < 0n ? 'bal.you_owe' : 'bal.mine')) + '</div>' +
-        '<div class="val ' + (n > 0n ? 'pos' : n < 0n ? 'neg' : '') + '">' + esc(gmoney((n < 0n ? -n : n).toString())) + '</div></div>';
+        '<div class="val ' + (n > 0n ? 'pos' : n < 0n ? 'neg' : '') + '">' + gmoneyHtml((n < 0n ? -n : n).toString()) + '</div></div>';
     }
     $('bal-tiles').innerHTML = tiles;
 
@@ -113,9 +118,9 @@
     $('bal-body').innerHTML = rows.map(function (b) {
       var n = BigInt(b.net);
       return '<tr><td>' + esc(nameOf(b.id)) + '</td>' +
-        '<td class="num">' + esc(money(b.paid, G().currency, G().dp, { plain: true })) + '</td>' +
-        '<td class="num">' + esc(money(b.share, G().currency, G().dp, { plain: true })) + '</td>' +
-        '<td class="num ' + (n > 0n ? 'pos' : n < 0n ? 'neg' : '') + '">' + esc(signedMoney(b.net, G().currency, G().dp)) + '</td></tr>';
+        '<td class="num">' + moneyHtml(b.paid, G().currency, G().dp, { plain: true }) + '</td>' +
+        '<td class="num">' + moneyHtml(b.share, G().currency, G().dp, { plain: true }) + '</td>' +
+        '<td class="num ' + (n > 0n ? 'pos' : n < 0n ? 'neg' : '') + '">' + signedMoneyHtml(b.net, G().currency, G().dp) + '</td></tr>';
     }).join('');
 
     var tr = v.transfers;
@@ -133,7 +138,7 @@
         }
         var tag = paid ? '<span class="chip chip-settled">' + esc(t('xfer.paid')) + '</span>' : '';
         return '<div class="transfer' + (paid ? ' paid' : '') + '"><span class="who">' + esc(nameOf(x.from)) + ' ' + icon('arrow-right') + ' ' + esc(nameOf(x.to)) + ' ' + tag + '</span>' +
-          '<span class="amt">' + esc(gmoney(x.amount)) + '</span>' + btn + '</div>';
+          '<span class="amt">' + gmoneyHtml(x.amount) + '</span>' + btn + '</div>';
       }).join('');
     }
     $('transfers').innerHTML = html;
@@ -150,37 +155,44 @@
     $('owner-actions').hidden = !acts;
   }
 
+  /* The rows of one page of a list, with its pager drawn (and the page kept
+     in range when the list shrinks). */
+  function pageOf(key, rows, pagerId, redraw) {
+    PAGE[key] = renderPager($(pagerId), PAGE[key], rows.length, SIZE[key], function (p) { PAGE[key] = p; redraw(); });
+    return rows.slice((PAGE[key] - 1) * SIZE[key], PAGE[key] * SIZE[key]);
+  }
+
   /* A row opens its bill: the editor when you may change it, else read-only. */
   function renderBills() {
     var v = S.view;
     var wrap = $('bills-wrap');
-    if (!v.bills.length) { setTableEmpty(wrap, t('bill.empty')); return; }
+    if (!v.bills.length) { setTableEmpty(wrap, t('bill.empty')); $('bills-pager').hidden = true; return; }
     setTableEmpty(wrap, '');
     var list = v.bills.slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : Number(b.id) - Number(a.id); });
+    list = pageOf('bills', list, 'bills-pager', renderBills);
     $('bills-body').innerHTML = list.map(function (b) {
       var mine = v.me && b.shares[v.me] ? b.shares[v.me][0] : null;
-      var total = money(b.total, b.currency, b.dp);
-      var conv = b.currency !== G().currency && b.converted != null ? '<div class="tool-sub">' + esc(gmoney(b.converted)) + '</div>' : '';
+      var conv = b.currency !== G().currency && b.converted != null ? '<div class="tool-sub">' + gmoneyHtml(b.converted) + '</div>' : '';
       var err = b.error ? '<div class="tool-sub neg">' + esc(errMsg(b.error.code, b.error.params)) + '</div>' : '';
       return '<tr class="row-link" tabindex="0" data-bill="' + esc(b.id) + '"><td>' + esc(b.description) +
         '<div class="tool-sub">' + esc(fmtDate(b.date)) + ' · ' + esc(t('bill.paid_by_x', nameOf(b.payer))) + '</div>' + err + '</td>' +
-        '<td class="num">' + esc(total) + conv + '</td>' +
-        '<td class="num">' + (mine == null ? '<span class="muted">-</span>' : esc(money(mine, b.currency, b.dp, { plain: true }))) + '</td></tr>';
+        '<td class="num">' + moneyHtml(b.total, b.currency, b.dp) + conv + '</td>' +
+        '<td class="num">' + (mine == null ? '<span class="muted">-</span>' : moneyHtml(mine, b.currency, b.dp, { plain: true })) + '</td></tr>';
     }).join('');
   }
 
   function renderPayments() {
     var v = S.view;
     var wrap = $('pay-wrap');
-    if (!v.payments.length) { setTableEmpty(wrap, t('pay.empty')); return; }
+    if (!v.payments.length) { setTableEmpty(wrap, t('pay.empty')); $('pay-pager').hidden = true; return; }
     setTableEmpty(wrap, '');
-    $('pay-body').innerHTML = v.payments.slice().reverse().map(function (p) {
+    $('pay-body').innerHTML = pageOf('pay', v.payments.slice().reverse(), 'pay-pager', renderPayments).map(function (p) {
       var canDel = !S.offline && isOpen() && !p.transfer_id && (S.canRecord(p.from, p.to) || p.created_by === S.me.user_id);
-      var conv = p.currency !== G().currency && p.converted != null ? '<div class="tool-sub">' + esc(gmoney(p.converted)) + '</div>' : '';
+      var conv = p.currency !== G().currency && p.converted != null ? '<div class="tool-sub">' + gmoneyHtml(p.converted) + '</div>' : '';
       var tag = p.transfer_id ? ' · ' + esc(t('pay.from_settle')) : '';
       return '<tr><td>' + esc(nameOf(p.from)) + ' ' + icon('arrow-right') + ' ' + esc(nameOf(p.to)) +
         '<div class="tool-sub">' + esc(fmtDate(p.date)) + tag + (p.note ? ' · ' + esc(p.note) : '') + '</div></td>' +
-        '<td class="num">' + esc(money(p.amount, p.currency, p.dp)) + conv + '</td>' +
+        '<td class="num">' + moneyHtml(p.amount, p.currency, p.dp) + conv + '</td>' +
         '<td class="act">' + (canDel ? '<div class="tool-row-actions"><button type="button" class="btn btn-danger btn-compact btn-icon" data-delpay="' + esc(p.id) + '" aria-label="' + esc(t('common.delete')) + '">' + icon('trash') + '</button></div>' : '') + '</td></tr>';
     }).join('');
   }
@@ -188,7 +200,7 @@
   function renderMembers() {
     var v = S.view;
     var owner = v.is_owner && !S.offline;
-    $('mem-body').innerHTML = v.members.map(function (m) {
+    $('mem-body').innerHTML = pageOf('mem', v.members, 'mem-pager', renderMembers).map(function (m) {
       var sub = [];
       if (m.username) sub.push('@' + esc(m.username));
       if (m.user_id === G().owner) sub.push(esc(t('mem.owner')));

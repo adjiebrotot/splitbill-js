@@ -48,6 +48,10 @@ export const STRINGS: Record<string, Entry> = {
   "common.copied": { en: "Copied.", id: "Tersalin." },
   "common.all": { en: "All", id: "Semua" },
   "common.actions": { en: "Actions", id: "Tindakan" },
+  "common.page_info": { en: "{0}-{1} of {2}", id: "{0}-{1} dari {2}" },
+  "common.page_of": { en: "Page {0} of {1}", id: "Halaman {0} dari {1}" },
+  "common.prev": { en: "Previous page", id: "Halaman sebelumnya" },
+  "common.next": { en: "Next page", id: "Halaman berikutnya" },
   "confirm.title": { en: "Are you sure?", id: "Yakin?" },
   "confirm.proceed": { en: "Continue", id: "Lanjutkan" },
 

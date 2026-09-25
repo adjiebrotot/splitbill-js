@@ -17,10 +17,10 @@
         : '<span class="chip chip-open">' + esc(t('status.open')) + '</span>';
       var net = BigInt(g.my_net);
       var netTxt = net === 0n ? '<span class="muted">' + esc(t('bal.even')) + '</span>'
-        : '<span class="' + (net > 0n ? 'pos' : 'neg') + '">' + esc(signedMoney(g.my_net, g.currency, g.dp)) + '</span>';
+        : '<span class="' + (net > 0n ? 'pos' : 'neg') + '">' + signedMoneyHtml(g.my_net, g.currency, g.dp) + '</span>';
       return '<tr class="row-link" data-id="' + esc(g.group_id) + '" tabindex="0">' +
         '<td>' + esc(g.name) + '<div class="tool-sub">' + esc(kind) + ' · ' + status + '</div></td>' +
-        '<td class="num">' + esc(money(g.spent, g.currency, g.dp)) + '</td>' +
+        '<td class="num">' + moneyHtml(g.spent, g.currency, g.dp) + '</td>' +
         '<td class="num">' + netTxt + '</td></tr>';
     }).join('');
   }

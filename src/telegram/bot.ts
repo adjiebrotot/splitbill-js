@@ -74,7 +74,7 @@ async function draftMessage(d: Dict, userId: string, lang: string): Promise<{ ht
     }, order);
     if (d.stated_total && BigInt(d.stated_total) !== alloc.total) throw new EngineError("stated_total_mismatch");
     if (d.unknown?.length) problem = tf("input.unknown", lang, d.unknown.join(", "));
-    lines.push(`<b>${esc(t("bill.total", lang))}: ${amt(alloc.total)} ${esc(d.currency)}</b>`);
+    lines.push(`<b>${esc(t("bill.total", lang))}: ${esc(d.currency)} ${amt(alloc.total)}</b>`);
     lines.push([...alloc.shares].map(([m, x]) => `${esc(name(m))} ${amt(x)}`).join(" · "));
   } catch (e) {
     problem = e instanceof EngineError ? errText(e.code, e.params, lang) : t("err.generic", lang);

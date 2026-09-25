@@ -303,9 +303,13 @@
     .toast.show { transform: translateX(-50%); }
   }
 
+  /* One place on every screen: centred at the bottom edge, clear of the
+     home indicator, and above any open modal or confirm (they sit at 10000),
+     so a "Saved." raised from inside a modal is never hidden behind it.
+     Split Bill has no bottom tab bar, so nothing needs the old 80px lift. */
   .toast {
     position: fixed;
-    bottom: 80px;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%) translateY(20px);
     padding: 11px 22px;
@@ -314,20 +318,18 @@
     font-size: 14px;
     opacity: 0;
     transition: opacity 0.25s, transform 0.25s;
-    z-index: 9999;
+    z-index: 100000;
     white-space: normal;
     overflow-wrap: anywhere;
-    max-width: 90vw;
+    width: max-content;
+    max-width: calc(100vw - 32px);
     text-align: center;
     pointer-events: none;
+    box-shadow: var(--shadow);
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   .toast.success { background: var(--success); color: #1a4a18; }
   .toast.error   { background: var(--danger);  color: #4a1018; }
-
-  @media (min-width: 769px) {
-    .toast { bottom: 30px; }
-  }
 
   /* ── CONFIRM DIALOG (ui.js) ────────────────────────────────────────────────
      Replaces window.confirm(): styleable, translated with the rest of the app,
@@ -1089,6 +1091,13 @@
   .chip-settled { background: var(--success); color: var(--success-ink); }
   .chip-muted { background: var(--bg-sunken); color: var(--text-muted); }
 
+  /* A money figure is "<code> <value>": the code leads, in the text font,
+     quieter than the value (opacity keeps a pos / neg tint on both). */
+  .ccy {
+    font-family: var(--font); font-weight: 500; font-size: 0.85em;
+    opacity: 0.6; margin-right: 0.35em; letter-spacing: 0.02em;
+  }
+
   .pos { color: var(--success-ink); }
   .neg { color: var(--danger-ink); }
   .muted { color: var(--text-muted); }
@@ -1189,8 +1198,11 @@
   /* A page-level action between cards spaces like a card. */
   .page-action { margin-bottom: 14px; }
   /* Two secondary cards side by side; one column once they would squeeze. */
-  .tool-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; margin-bottom: 14px; }
-  .tool-cols > .tool-card { margin-bottom: 0; min-width: 0; }
+  /* The two stand the same height: the row stretches both, the table takes
+     the spare room, so each pager sits on the card's bottom edge. */
+  .tool-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; margin-bottom: 14px; }
+  .tool-cols > .tool-card { margin-bottom: 0; min-width: 0; display: flex; flex-direction: column; }
+  .tool-cols > .tool-card > .tool-tbl-wrap { flex: 1 1 auto; }
   @media (max-width: 760px) { .tool-cols { grid-template-columns: 1fr; } }
   /* Rare actions, one per row, in a modal. */
   .btn-col { display: flex; flex-direction: column; gap: 10px; }
