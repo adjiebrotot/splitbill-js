@@ -707,6 +707,14 @@ export async function reopenGroup(p: { user_id: string } & Params) {
     await execute("UPDATE settlement_transfers SET status = 'superseded' WHERE group_id = $1 AND status = 'pending'", [gid]);
     await execute("UPDATE groups SET status = 'open', settled_at = NULL, settled_by = NULL WHERE group_id = $1", [gid]);
     await c.log("reopen", "group", gid, { round: c.s.group.round });
+    // Rates saved small side first before 003 (locked while settled): flip them now.
+    for (const r of c.s.rates) {
+      const b = bigSideRate(parseRate(r.rate), r.inverted);
+      if (b.inverted === r.inverted) continue;
+      await execute("UPDATE fx_rates SET rate = $1, inverted = $2 WHERE group_id = $3 AND currency = $4 AND effective_date = $5::date",
+        [b.rate.text, b.inverted, gid, r.currency, r.effective]);
+      await c.log("set", "rate", `${r.currency}|${r.effective}`, { rate: b.rate.text, inverted: b.inverted, from: r.rate, source: "big_side_first" });
+    }
     return { status: "open" };
   });
 }

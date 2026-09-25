@@ -632,6 +632,13 @@
   $('rate-currency').addEventListener('change', label);
   $('rate-start').addEventListener('change', function () { $('rate-date').disabled = $('rate-start').checked; });
   $('rate-value').addEventListener('input', function () { R.source = 'manual'; });
+  // Big side first: "1 IDR = 0.000079 AUD" becomes "1 AUD = 12,658.23 IDR".
+  $('rate-value').addEventListener('blur', function () {
+    try {
+      var r = E.parseLocaleRate($('rate-value').value, lang()).value;
+      if (r.num < r.den) $('rate-flip').click();
+    } catch (e) {}
+  });
   $('rate-flip').addEventListener('click', function () {
     R.inverted = !R.inverted;
     // Keep the same meaning: flip the number too when one is there.
@@ -689,16 +696,18 @@
     var need = used().filter(function (c) { return c !== to; });
     $('ccy-rates').innerHTML = need.map(function (c) {
       return '<div class="pct-row"><span class="who">1 ' + esc(c) + ' =</span>' +
-        '<input type="text" class="ccy-rate" data-c="' + esc(c) + '" inputmode="decimal" aria-label="' + esc(c) + '">' +
+        '<input type="text" class="ccy-rate" data-c="' + esc(c) + '" data-inv="0" inputmode="decimal" aria-label="' + esc(c) + '">' +
         '<span class="muted">' + esc(to) + '</span></div>';
     }).join('');
     need.forEach(function (c) {
       api('rate/auto', { body: { group_id: S.gid, currency: c, to: to } }).then(function (r) {
         var inp = $('ccy-rates').querySelector('.ccy-rate[data-c="' + c + '"]');
         if (!r.ok || !inp || inp.value || $('ccy-new').value !== to) return;
-        // Stored big side first; this box always reads "1 <c> = ? <to>".
-        var v = r.data.inverted ? 1 / Number(r.data.rate) : Number(r.data.rate);
-        inp.value = localNum(Number(v.toPrecision(10)).toString());
+        // Big side first, as stored: "1 USD = 16,250 IDR", never "1 IDR = 0.0000615 USD".
+        inp.dataset.inv = r.data.inverted ? '1' : '0';
+        inp.previousElementSibling.textContent = '1 ' + (r.data.inverted ? to : c) + ' =';
+        inp.nextElementSibling.textContent = r.data.inverted ? c : to;
+        inp.value = localNum(r.data.rate);
       });
     });
   }
@@ -716,7 +725,7 @@
     var rates = [];
     var inputs = $('ccy-rates').querySelectorAll('.ccy-rate');
     for (var i = 0; i < inputs.length; i++) {
-      try { rates.push({ currency: inputs[i].dataset.c, effective: '-infinity', rate: E.parseLocaleRate(inputs[i].value, window.__LANG__).text, inverted: false }); }
+      try { rates.push({ currency: inputs[i].dataset.c, effective: '-infinity', rate: E.parseLocaleRate(inputs[i].value, window.__LANG__).text, inverted: inputs[i].dataset.inv === '1' }); }
       catch (e) { return showToast(errMsg(e.code || 'rate_invalid'), 'error'); }
     }
     S.act('group/currency', { currency: $('ccy-new').value, rates: rates }, t('common.saved'), $('ccy-save'))

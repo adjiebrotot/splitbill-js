@@ -292,6 +292,37 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     expect(v.rates.find((r) => r.currency === "IDR")).toMatchObject({ rate: "108.1081081", inverted: true });
   });
 
+  it("rates: old small-side-first rows are flipped by 003, and by reopen when settled", async () => {
+    offline();
+    const { MIGRATIONS } = await import("@/migrations");
+    const mk = async (name: string) => {
+      const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name, currency: "AUD", members: ["Bob"] });
+      await A.setRate({ user_id: uid.ali, group_id: g.group_id, currency: "IDR", effective: "-infinity", rate: "12655.79121", inverted: true });
+      const v = await view(g.group_id);
+      const [ali, bob] = ["Ali", "Bob"].map((n) => memberId(v, n));
+      await A.saveBill({ user_id: uid.ali, group_id: g.group_id, description: "Nasi", date: "2026-09-05", currency: "IDR", mode: "even", payer: ali,
+        total: "1000000", participants: [{ member: ali }, { member: bob }] });
+      // As saved before bigSideRate: 1 IDR = 0.00007901521 AUD.
+      await db.execute("UPDATE fx_rates SET rate = 0.00007901521, inverted = FALSE WHERE group_id = $1", [g.group_id]);
+      return g.group_id;
+    };
+    const open = await mk("Bali open");
+    const settled = await mk("Bali settled");
+    let v = await view(settled);
+    await A.settleGroup({ user_id: uid.ali, group_id: settled, expected_revision: v.group.revision });
+    const rev = Number((await view(open)).group.revision);
+    await db.executeScript(MIGRATIONS["003_rates_big_side_first"]);
+    await db.executeScript(MIGRATIONS["003_rates_big_side_first"]);
+    v = await view(open);
+    expect(v.rates[0]).toMatchObject({ rate: "12655.79121", inverted: true });
+    expect(Number(v.group.revision)).toBe(rev + 1);
+    expect(v.balances.reduce((a, b) => a + b.net, 0n)).toBe(0n);
+    // Settled books stay locked until reopened.
+    expect((await view(settled)).rates[0]).toMatchObject({ rate: "0.00007901521", inverted: false });
+    await A.reopenGroup({ user_id: uid.ali, group_id: settled });
+    expect((await view(settled)).rates[0]).toMatchObject({ rate: "12655.79121", inverted: true });
+  });
+
   it("rates: a missing one is fetched on save, from the start, by any member", async () => {
     const asked: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
