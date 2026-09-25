@@ -1088,7 +1088,9 @@
     vertical-align: middle; white-space: nowrap;
     background: #d6e4f7; color: #1b3a5c;
   }
+  /* A split's stage: open (bills still coming), final (locked, unpaid), settled. */
   .chip-open { background: #fff6e0; color: #6b4e00; }
+  .chip-final { background: #d6e4f7; color: #1b3a5c; }
   .chip-settled { background: var(--success); color: var(--success-ink); }
   .chip-muted { background: var(--bg-sunken); color: var(--text-muted); }
 

@@ -27,6 +27,8 @@ const C = {
   openInk: [107, 78, 0] as RGB,
   okBg: [200, 247, 197] as RGB,
   okInk: [20, 83, 45] as RGB,
+  finalBg: [214, 228, 247] as RGB,
+  finalInk: [27, 58, 92] as RGB,
   stamp: [140, 29, 43] as RGB,
 };
 
@@ -76,8 +78,9 @@ function layout(doc: ReportDoc, p: Painter, W: number, pad: number): Row[] {
       pp.text("Split Bill", pad, y + 14, "sansB", 12, C.muted);
       const chip = doc.status;
       const cw = Math.min(pp.measure(chip, "sansB", 10) + 20, inner * 0.7);
-      pp.rect(W - pad - cw, y + 2, cw, 20, doc.settled ? C.okBg : C.openBg, 10);
-      pp.text(fit(pp, chip, "sansB", 10, cw - 16), W - pad - cw + 10, y + 16, "sansB", 10, doc.settled ? C.okInk : C.openInk);
+      const [bg, ink] = doc.stage === "settled" ? [C.okBg, C.okInk] : doc.stage === "final" ? [C.finalBg, C.finalInk] : [C.openBg, C.openInk];
+      pp.rect(W - pad - cw, y + 2, cw, 20, bg, 10);
+      pp.text(fit(pp, chip, "sansB", 10, cw - 16), W - pad - cw + 10, y + 16, "sansB", 10, ink);
       pp.text(fit(pp, doc.title, "sansB", 24, inner), pad, y + 54, "sansB", 24, C.text);
       pp.text(fit(pp, doc.subtitle, "sans", 13, inner), pad, y + 76, "sans", 13, C.muted);
     },
@@ -237,12 +240,12 @@ export async function renderPng(doc: ReportDoc): Promise<Uint8Array> {
     r.draw(painter, y);
     y += r.h;
   }
-  if (!doc.settled) {
-    // A faint diagonal stamp: an unsettled report is never mistaken for final.
+  if (doc.stamp) {
+    // A faint diagonal stamp: NOT FINAL while open, NOT SETTLED until everyone has paid.
     ctx.save();
     ctx.translate(W / 2, H / 2);
     ctx.rotate(-Math.PI / 7);
-    const label = doc.status.split(" · ")[0];
+    const label = doc.stamp;
     ctx.font = `10px "${fam.sansB}"`;
     const px = Math.min(44, (W * 0.8 * 10) / ctx.measureText(label).width);
     ctx.font = `${px}px "${fam.sansB}"`;
@@ -280,8 +283,8 @@ export async function renderPdf(doc: ReportDoc): Promise<Uint8Array> {
     page.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: col(C.bg) });
   };
   const stamp = () => {
-    if (doc.settled) return;
-    const s = doc.status.split(" · ")[0];
+    if (!doc.stamp) return;
+    const s = doc.stamp;
     const th = (25 * Math.PI) / 180;
     const size = Math.min(54, (PW * 0.8) / fonts.sansB.widthOfTextAtSize(s, 1));
     const w = fonts.sansB.widthOfTextAtSize(s, size);

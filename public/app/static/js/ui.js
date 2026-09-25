@@ -341,6 +341,13 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  /* A split's stage chip: open, final (locked, someone still owes) or settled.
+     The stage comes from the server (stageOf in services/ledger.ts). */
+  function stageChip(stage) {
+    var st = stage === 'final' || stage === 'settled' ? stage : 'open';
+    return '<span class="chip chip-' + st + '">' + esc(t('status.' + st)) + '</span>';
+  }
+
   function icon(name, cls) {
     return '<svg class="icon' + (cls ? ' ' + cls : '') + '" aria-hidden="true"><use href="' + ICONS + '#i-' + name + '"></use></svg>';
   }
@@ -553,6 +560,7 @@
   document.addEventListener('focusin', function (e) { _noAutofill(e.target); }, true);
   window.esc = esc;
   window.icon = icon;
+  window.stageChip = stageChip;
   window.showToast = showToast;
   window.errMsg = errMsg;
   window.api = api;

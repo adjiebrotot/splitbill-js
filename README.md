@@ -4,10 +4,10 @@ Split bills among friends: one-off bills and whole trips. Next.js route handlers
 
 ## What it does
 
-- **One-off**: tap Add Bill, snap the receipt (or type it), add people right in the bill, save. No split to set up first; it is named after its bill. Split by item, evenly or by percent. Settle when done.
-- **Trip**: many bills over a trip, members with or without the app, many currencies with one group rate table (market rates are added automatically; the owner can edit them), mid-trip repayments. The owner settles at the end; transfers are ticked off as paid; the owner can reopen.
+- **One-off**: tap Add Bill, snap the receipt (or type it), add people right in the bill, save. No split to set up first; it is named after its bill. Split by item, evenly or by percent. Final once saved; settled when everyone has paid.
+- **Trip**: many bills over a trip, members with or without the app, many currencies with one group rate table (market rates are added automatically; the owner can edit them), mid-trip repayments. The owner finalises at the end (no more bills); transfers are ticked off as paid, and the trip is settled when all are; the owner can reopen.
 - **Input**: receipt photo first, then chat text, then the form. AI output is always a draft you check; names it cannot match become one-tap "+ Name" chips.
-- **Reports**: group (who pays whom) and individual, as text to copy or PNG / PDF. Unsettled reports say NOT SETTLED.
+- **Reports**: group (who pays whom) and individual, as text to copy or PNG / PDF. Each split is Open, Final or Settled: an open report says NOT FINAL, a final one FINAL · NOT SETTLED (both watermarked), a settled one carries no watermark.
 - **Telegram**: private chat and group chats.
 
 ## Accounting integrity

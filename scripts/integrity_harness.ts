@@ -153,6 +153,11 @@ function replay(v: GroupView) {
     }
     for (const b of v.balances) check("I4", BigInt(b.net) === (pend.get(b.id) ?? 0n), `member ${b.id}`);
   }
+  // I8 stage: settled only when locked, complete and every balance is zero;
+  // open only while bills can still be added.
+  const locked = v.group.status === "settled" || (v.group.kind !== "travel" && v.bills.length > 0);
+  const even = v.balances.every((b) => BigInt(b.net) === 0n);
+  check("I8 stage", v.stage === (!locked ? "open" : even && v.complete ? "settled" : "final"), `stage ${v.stage}`);
 }
 
 async function snapshotCheck(v: GroupView) {
