@@ -30,15 +30,26 @@
             '<button type="button" class="assist-tab" data-input="form" role="tab">' + icon('form') + ' <span data-i18n="input.form">Form</span></button>' +
           '</div>' +
           '<div id="ai-photo" class="stack">' +
-            '<div class="field">' +
+            '<div class="field" id="ai-caption-field">' +
               '<label for="ai-caption" data-i18n="input.caption">Note (optional)</label>' +
               '<input type="text" id="ai-caption" maxlength="300" data-i18n-ph="input.caption_ph" placeholder="Paid by Ali, drinks for Bob">' +
             '</div>' +
-            '<label class="photo-pick" for="ai-file" id="ai-pick">' +
-              '' + icon('camera') + '' +
-              '<span data-i18n="input.photo_pick">Take or choose a receipt photo</span>' +
-            '</label>' +
+            '<div id="ai-pick" class="stack">' +
+              '<label class="photo-pick" for="ai-file" id="ai-drop">' +
+                icon('upload') +
+                '<span data-i18n="input.photo_pick">Drop or choose a receipt picture</span>' +
+              '</label>' +
+              '<button type="button" class="btn btn-ghost btn-full" id="ai-cam-go">' + icon('camera') + ' <span data-i18n="input.photo_camera">or take a photo</span></button>' +
+            '</div>' +
+            '<div id="ai-webcam" class="stack" hidden>' +
+              '<video id="ai-video" class="photo-cam" autoplay playsinline muted></video>' +
+              '<div class="btn-row">' +
+                '<button type="button" class="btn btn-ghost" id="ai-cam-cancel" data-i18n="common.cancel">Cancel</button>' +
+                '<button type="button" class="btn btn-primary" id="ai-cam-snap">' + icon('camera') + ' <span data-i18n="input.camera_snap">Take photo</span></button>' +
+              '</div>' +
+            '</div>' +
             '<input type="file" id="ai-file" accept="image/*" hidden>' +
+            '<input type="file" id="ai-cam" accept="image/*" capture="environment" hidden>' +
             '<img id="ai-thumb" class="photo-thumb" alt="" hidden>' +
           '</div>' +
           '<div id="ai-chat" class="stack" hidden>' +
@@ -250,6 +261,7 @@
     $('input-tabs').hidden = !input || !S.ai;
     $('ai-photo').hidden = !input || B.tab !== 'photo';
     $('ai-chat').hidden = !input || B.tab !== 'chat';
+    if ($('ai-photo').hidden) stopCam();
     $('ai-reset').hidden = !(isNew && B.read);
     var fields = !isNew || B.read || B.tab === 'form';
     $('bill-fields').hidden = !fields;
@@ -462,10 +474,7 @@
 
   function resetInput() {
     photo = null;
-    $('ai-file').value = '';
-    $('ai-thumb').hidden = true;
-    $('ai-thumb').removeAttribute('src');
-    $('ai-pick').classList.remove('busy');
+    showPick(true);
     $('ai-text').value = '';
     $('ai-caption').value = '';
     status('');
@@ -487,7 +496,7 @@
     for (var i = 0; i < fields.length; i++) fields[i].disabled = !!readOnly;
     openModal('modal-bill', {
       initialFocus: B.tab === 'form' ? '#bill-desc' : null,
-      onClose: function () { if (S.discardEmpty) S.discardEmpty(); },
+      onClose: function () { stopCam(); if (S.discardEmpty) S.discardEmpty(); },
     });
     preview();
   };
@@ -818,9 +827,26 @@
     el.hidden = !msg;
   }
 
+  /* The pickers until a photo is picked, then only that photo. A note
+     typed before stays in sight, locked; an empty one goes away. */
+  function showPick(on) {
+    stopCam();
+    $('ai-file').value = '';
+    $('ai-cam').value = '';
+    $('ai-pick').hidden = !on;
+    var cap = $('ai-caption');
+    cap.readOnly = !on;
+    cap.classList.toggle('input-locked', !on);
+    $('ai-caption-field').hidden = !on && !cap.value.trim();
+    var th = $('ai-thumb');
+    th.hidden = on;
+    if (on && th.src) { URL.revokeObjectURL(th.src); th.removeAttribute('src'); }
+  }
+
   function done(r, bill) {
-    $('ai-pick').classList.remove('busy');
     if (bill !== B) return; // closed or reset while reading
+    // A failed read gives the pickers back for another try.
+    if (!r.ok) showPick(true);
     // No AI on this server: say nothing, just hand over the form.
     if (!r.ok && r.code === 'ai_unavailable') {
       S.ai = false;
@@ -843,20 +869,34 @@
     api('ai/chat', { body: { group_id: S.gid, text: text } }).then(function (r) { setBusy(btn, false); done(r, bill); });
   });
 
-  /* Shrink before upload: 1600px long side, JPEG 0.85. Receipts stay
-     readable and a 5 MB phone photo becomes a few hundred KB. */
+  /* Normalise before upload. Vision models bill by pixels, so the photo is
+     capped at 1.2 MP and 1600px on the long side: about 950 x 1270 for a
+     phone photo, still ~20px per receipt line. Grey JPEG q0.8, since colour
+     adds nothing to printed text: a 5 MB phone photo becomes ~150 KB. The
+     server enforces the same budget (llm_client.ts normalizeImage). */
+  var MAX_SIDE = 1600, MAX_PIXELS = 1200000;
   function shrink(file) {
     return new Promise(function (resolve) {
       var img = new Image();
       var url = URL.createObjectURL(file);
       img.onload = function () {
-        var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        var w = img.naturalWidth, h = img.naturalHeight;
+        var scale = Math.min(1, MAX_SIDE / Math.max(w, h), Math.sqrt(MAX_PIXELS / (w * h)));
         var c = document.createElement('canvas');
-        c.width = Math.round(img.width * scale);
-        c.height = Math.round(img.height * scale);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        c.width = Math.max(1, Math.round(w * scale));
+        c.height = Math.max(1, Math.round(h * scale));
+        var ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        try {
+          var d = ctx.getImageData(0, 0, c.width, c.height), p = d.data;
+          for (var i = 0; i < p.length; i += 4) {
+            var y = (p[i] * 77 + p[i + 1] * 150 + p[i + 2] * 29) >> 8;
+            p[i] = p[i + 1] = p[i + 2] = y;
+          }
+          ctx.putImageData(d, 0, 0);
+        } catch (e) { /* keep colour */ }
         URL.revokeObjectURL(url);
-        c.toBlob(function (b) { resolve(b || file); }, 'image/jpeg', 0.85);
+        c.toBlob(function (b) { resolve(b || file); }, 'image/jpeg', 0.8);
       };
       img.onerror = function () { URL.revokeObjectURL(url); resolve(file); };
       img.src = url;
@@ -864,12 +904,12 @@
   }
 
   /* Picking the photo is the whole action: it is read at once. */
-  $('ai-file').addEventListener('change', function () {
-    var f = $('ai-file').files[0];
+  function readPhoto(f) {
     if (!f) return;
+    if (!/^image\//.test(f.type || '')) return status(errMsg('image_invalid', {}), true);
     var bill = B;
-    $('ai-pick').classList.add('busy');
     status(t('input.reading'));
+    showPick(false);
     shrink(f).then(function (b) {
       photo = b;
       var th = $('ai-thumb');
@@ -879,9 +919,79 @@
       fd.append('group_id', S.gid);
       fd.append('caption', $('ai-caption').value);
       fd.append('file', photo, 'receipt.jpg');
-      // The same photo picked again after an error must fire "change" again.
-      $('ai-file').value = '';
       return api('ai/photo', { body: fd });
     }).then(function (r) { done(r, bill); });
+  }
+
+  $('ai-file').addEventListener('change', function () { readPhoto($('ai-file').files[0]); });
+  $('ai-cam').addEventListener('change', function () { readPhoto($('ai-cam').files[0]); });
+
+  /* Camera. A phone's own camera app (the capture input) beats anything a
+     page can draw, so a touch screen gets that. A laptop or desktop ignores
+     "capture" and would only open the file picker, so it gets a live webcam
+     preview here instead, and the file picker only when there is no camera. */
+  var cam = null; // the open webcam stream
+  function stopCam() {
+    if (cam) cam.getTracks().forEach(function (tr) { tr.stop(); });
+    cam = null;
+    $('ai-video').srcObject = null;
+    $('ai-webcam').hidden = true;
+  }
+
+  function openWebcam() {
+    var bill = B;
+    $('ai-pick').hidden = true;
+    status('');
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      .then(function (stream) {
+        if (bill !== B || !isModalOpen('modal-bill') || $('ai-photo').hidden) {
+          stream.getTracks().forEach(function (tr) { tr.stop(); });
+          return;
+        }
+        cam = stream;
+        $('ai-video').srcObject = stream;
+        $('ai-webcam').hidden = false;
+      })
+      .catch(function () {
+        $('ai-pick').hidden = false;
+        status(t('input.camera_off'), true);
+      });
+  }
+
+  $('ai-cam-go').addEventListener('click', function () {
+    var touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    if (!touch && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) openWebcam();
+    else $('ai-cam').click();
+  });
+
+  $('ai-cam-cancel').addEventListener('click', function () {
+    stopCam();
+    $('ai-pick').hidden = false;
+  });
+
+  $('ai-cam-snap').addEventListener('click', function () {
+    var v = $('ai-video');
+    if (!cam || !v.videoWidth) return;
+    var c = document.createElement('canvas');
+    c.width = v.videoWidth;
+    c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    c.toBlob(function (b) {
+      if (b) readPhoto(new File([b], 'receipt.jpg', { type: 'image/jpeg' }));
+    }, 'image/jpeg', 0.92);
+  });
+
+  // Drag and drop onto the drop area.
+  var drop = $('ai-drop');
+  ['dragenter', 'dragover'].forEach(function (n) {
+    drop.addEventListener(n, function (ev) { ev.preventDefault(); drop.classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (n) {
+    drop.addEventListener(n, function () { drop.classList.remove('over'); });
+  });
+  drop.addEventListener('drop', function (ev) {
+    ev.preventDefault();
+    var f = ev.dataTransfer && ev.dataTransfer.files[0];
+    readPhoto(f);
   });
 }());

@@ -3,7 +3,7 @@
  * Telegram photo) is sent as it is; anything else is redrawn.
  */
 import { describe, it, expect } from "vitest";
-import { jpegInfo, normalizeImage } from "@/services/llm_client";
+import { IMAGE_MAX_PIXELS, IMAGE_MAX_SIDE, imageScale, jpegInfo, normalizeImage } from "@/services/llm_client";
 
 async function jpeg(w: number, h: number): Promise<Uint8Array> {
   const { createCanvas } = await import("@napi-rs/canvas");
@@ -33,5 +33,17 @@ describe("receipt images", () => {
     const big = await jpeg(2400, 1000);
     const out = await normalizeImage(big, "image/jpeg");
     expect(jpegInfo(out.bytes)).toMatchObject({ w: 1600, h: 667 });
+  });
+
+  it("fits a phone photo into the pixel budget, never scales up", async () => {
+    // 1200 x 900 is 1.08 MP: inside the budget. 1600 x 1200 is not.
+    expect(imageScale(1200, 900)).toBe(1);
+    const photo = await jpeg(4000, 3000);
+    const info = jpegInfo((await normalizeImage(photo, "image/jpeg")).bytes)!;
+    expect(Math.max(info.w, info.h)).toBeLessThanOrEqual(IMAGE_MAX_SIDE);
+    expect(info.w * info.h).toBeLessThanOrEqual(IMAGE_MAX_PIXELS * 1.01);
+    expect(info).toMatchObject({ w: 1265, h: 949 });
+    const mid = await jpeg(1600, 1200);
+    expect((await normalizeImage(mid, "image/jpeg")).bytes).not.toBe(mid);
   });
 });

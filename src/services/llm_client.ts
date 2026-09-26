@@ -201,27 +201,36 @@ export function jpegInfo(b: Uint8Array): { w: number; h: number; exif: boolean }
   return null;
 }
 
-/** Longest side sent to the vision model. */
-const IMAGE_MAX_SIDE = 1600;
+/** Longest side and pixel budget sent to the vision model. Vision tokens
+ *  follow the pixel count, so 1.2 MP (about 950 x 1270 for a phone photo)
+ *  keeps receipt text readable at about a third fewer tokens than 1600 x 1200.
+ *  bill.js shrink() uses the same numbers. */
+export const IMAGE_MAX_SIDE = 1600;
+export const IMAGE_MAX_PIXELS = 1_200_000;
 
-/** Downscale to 1600px on the long side, JPEG q85: enough for receipt text. */
+/** Scale factor that fits w x h inside the side and pixel budget (never up). */
+export function imageScale(w: number, h: number): number {
+  return Math.min(1, IMAGE_MAX_SIDE / Math.max(w, h), Math.sqrt(IMAGE_MAX_PIXELS / (w * h)));
+}
+
+/** Downscale into the budget, JPEG q80: enough for receipt text. */
 export async function normalizeImage(bytes: Uint8Array, mime: string): Promise<{ bytes: Uint8Array; mime: string }> {
   // The page already shrinks a photo to a plain JPEG (bill.js shrink()), and
   // Telegram sends one too: decoding and re-encoding it again only costs a
   // cold Skia load and CPU. EXIF may carry a rotation, so that is still drawn.
   if (mime === "image/jpeg" && bytes.length <= 2 * 1024 * 1024) {
     const info = jpegInfo(bytes);
-    if (info && !info.exif && info.w > 0 && info.h > 0 && Math.max(info.w, info.h) <= IMAGE_MAX_SIDE) return { bytes, mime };
+    if (info && !info.exif && info.w > 0 && info.h > 0 && imageScale(info.w, info.h) >= 1) return { bytes, mime };
   }
   try {
     const { createCanvas, loadImage } = await import("@napi-rs/canvas");
     const img = await loadImage(Buffer.from(bytes));
-    const scale = Math.min(1, IMAGE_MAX_SIDE / Math.max(img.width, img.height));
+    const scale = imageScale(img.width, img.height);
     const w = Math.max(1, Math.round(img.width * scale));
     const h = Math.max(1, Math.round(img.height * scale));
     const canvas = createCanvas(w, h);
     canvas.getContext("2d").drawImage(img as any, 0, 0, w, h);
-    return { bytes: new Uint8Array(canvas.toBuffer("image/jpeg", 85)), mime: "image/jpeg" };
+    return { bytes: new Uint8Array(canvas.toBuffer("image/jpeg", 80)), mime: "image/jpeg" };
   } catch {
     return { bytes, mime };
   }
