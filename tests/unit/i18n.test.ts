@@ -17,6 +17,7 @@ const list = (dir: string) => readdirSync(path.join(ROOT, dir)).map((f) => path.
 const SAME_OK = new Set([
   "app.name", "auth.email", "tg.title", "bill.item", "adj.tip", "bill.col_total", "bill.total",
   "bal.title", "rpt.balances", "bal.net", "rpt.col_net", "home.sort_az", "status.final", "rpt.final",
+  "bill.view", "bill.col_what",
 ]);
 
 describe("i18n", () => {
