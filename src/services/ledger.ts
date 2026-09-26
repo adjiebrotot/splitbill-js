@@ -32,6 +32,23 @@ export function compute(s: GroupState): GroupOut {
   return computeGroup(toEngine(s));
 }
 
+const _outs = new WeakMap<GroupState, GroupOut>();
+
+/**
+ * compute(), once per state object. For states nobody mutates: the shared
+ * ones from repo.ts readGroups (cached across requests) and the one write()
+ * verified and cached. The engine is pure, so the numbers are the same; the
+ * result is shared too, so treat it as read-only.
+ */
+export function computeShared(s: GroupState): GroupOut {
+  let out = _outs.get(s);
+  if (!out) {
+    out = compute(s);
+    _outs.set(s, out);
+  }
+  return out;
+}
+
 export type Stage = "open" | "final" | "settled";
 
 /**
@@ -99,3 +116,98 @@ export function viewOf(s: GroupState, out: GroupOut, meUserId: string | null) {
 }
 
 export type GroupView = ReturnType<typeof viewOf>;
+
+// ── home-list summary ──────────────────────────────────────────────────────
+
+/**
+ * What the home list shows of one group, for every linked member at once.
+ * Derived from the engine's numbers (never computed on its own), and stored
+ * by write() in group_summaries tagged with the group's revision, so the home
+ * list reads small rows instead of loading and computing every group. Money
+ * is kept as minor-unit strings.
+ */
+export interface GroupSummary {
+  kind: string;
+  name: string;
+  currency: string;
+  dp: number;
+  status: string;
+  members: number;
+  bills: number;
+  spent: string;
+  owed: number;
+  stage: Stage;
+  created_at: string;
+  last_at: string;
+  /** Per linked user: can they still add bills, their share and net. */
+  users: Record<string, { active: boolean; share: string; net: string }>;
+}
+
+/** Bump when GroupSummary's shape or meaning changes: old rows are then recomputed. */
+export const SUMMARY_VERSION = 1;
+
+function _lastActivity(s: GroupState): string {
+  let best = String(s.group.created_at);
+  let bestT = Date.parse(best) || 0;
+  const stamps = [...s.bills.map((b) => b.updated_at ?? b.created_at), ...s.payments.map((p) => p.created_at)];
+  for (const at of stamps) {
+    const tm = Date.parse(String(at));
+    if (tm > bestT) { bestT = tm; best = String(at); }
+  }
+  return best;
+}
+
+export function summaryOf(s: GroupState, out: GroupOut): GroupSummary {
+  const bal = new Map(out.balances.map((b) => [b.id, b]));
+  const users: GroupSummary["users"] = {};
+  for (const m of s.members) {
+    if (m.user_id === null) continue;
+    const b = bal.get(m.id);
+    users[m.user_id] = { active: m.active, share: String(b?.share ?? 0n), net: String(b?.net ?? 0n) };
+  }
+  return {
+    kind: s.group.kind,
+    name: s.group.name,
+    currency: s.group.currency,
+    dp: s.group.dp,
+    status: s.group.status,
+    members: s.members.filter((m) => m.active).length,
+    bills: s.bills.length,
+    spent: String(out.spent),
+    // Payments still owed (a finalised trip's balances equal its unpaid transfers).
+    owed: out.transfers.length,
+    stage: stageFor(s, out),
+    created_at: String(s.group.created_at),
+    // Newest activity: the last bill or payment written, else the split itself.
+    last_at: _lastActivity(s),
+    users,
+  };
+}
+
+/** One home-list row for `userId`, or null when they are not a linked member. */
+export function listRow(groupId: string, g: GroupSummary, userId: string) {
+  const u = g.users[userId];
+  if (!u) return null;
+  return {
+    group_id: groupId,
+    kind: g.kind,
+    name: g.name,
+    currency: g.currency,
+    dp: g.dp,
+    status: g.status,
+    // Can this viewer still add bills here (the home page's trip shortcuts)?
+    active: u.active,
+    members: g.members,
+    bills: g.bills,
+    spent: BigInt(g.spent),
+    // The viewer's own spending: their share of every bill, not what they paid.
+    my_share: BigInt(u.share),
+    my_net: BigInt(u.net),
+    owed: g.owed,
+    stage: g.stage,
+    created_at: g.created_at,
+    last_at: g.last_at,
+  };
+}
+
+export type ListRow = NonNullable<ReturnType<typeof listRow>>;

@@ -138,6 +138,11 @@ async function getPool(): Promise<Pool> {
 /** Ambient transaction connection (parity with Python `_ambient_conn`). */
 const _als = new AsyncLocalStorage<{ client: PoolClient }>();
 
+/** True inside atomic() / withConn(): reads see this block's uncommitted writes. */
+export function inTransaction(): boolean {
+  return _als.getStore() !== undefined;
+}
+
 async function runInTx<T>(fn: () => Promise<T>): Promise<T> {
   const existing = _als.getStore();
   if (existing) {

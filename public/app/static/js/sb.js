@@ -4,7 +4,9 @@
  * the bill editor (bill.js) on it without leaving the page.
  *
  *   S.onView()           called after every (re)load, to redraw the page
- *   S.afterWrite(path)   optional: replaces the reload after a write
+ *   S.afterWrite(path, fresh, r)  optional: replaces the reload after a write
+ *                        (fresh: the write's answer carried the new view; r is
+ *                        that answer, with the group's home-list row)
  *   S.onDiscarded()      called once an empty one-off is deleted
  */
 (function () {
@@ -91,7 +93,15 @@
     });
   };
 
-  /* Run a write, toast its error, reload on success. */
+  /* A write's answer carries the group's new view: take it instead of a
+     second request. Resolves true when it did. */
+  S.takeView = function (r) {
+    if (!r.ok || !r.view || r.view.group.group_id !== S.gid) return false;
+    S.setView(r.view, null, false);
+    return true;
+  };
+
+  /* Run a write, toast its error, redraw from its view (else reload) on success. */
   S.act = function (path, body, okMsg, btn) {
     if (btn) setBusy(btn, true);
     return api(path, { body: Object.assign({ group_id: S.gid }, body) }).then(function (r) {
@@ -102,7 +112,8 @@
         return r;
       }
       if (okMsg) showToast(okMsg);
-      return (S.afterWrite ? S.afterWrite(path) : S.reload()).then(function () { return r; });
+      var fresh = S.takeView(r);
+      return (S.afterWrite ? S.afterWrite(path, fresh, r) : fresh ? Promise.resolve() : S.reload()).then(function () { return r; });
     });
   };
 

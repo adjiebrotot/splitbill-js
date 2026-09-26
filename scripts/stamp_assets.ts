@@ -6,6 +6,13 @@
  * The service worker's CACHE name is derived from all of its stamped URLs, so
  * any asset change evicts the old precache.
  *
+ * Minified copies: every hand-written js/<x>.js and css/<x>.css gets a
+ * <x>.min.js / <x>.min.css beside it (esbuild, whitespace + syntax + local
+ * names; top-level names stay, the pages share globals). Pages and sw.js load
+ * the .min files; the sources stay readable and are what you edit. The copies
+ * are regenerated on every pass, so once the sources are stamped they carry
+ * the same ?v= references. engine.js and i18n-all.js are generated already minified.
+ *
  *   npx tsx scripts/stamp_assets.ts          write
  *   npx tsx scripts/stamp_assets.ts --check  exit 1 if anything is stale
  * tests/unit/assets.test.ts runs the check.
@@ -13,10 +20,36 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { transformSync } from "esbuild";
 
 const ROOT = path.join(__dirname, "..");
 const PUB = path.join(ROOT, "public");
 const REF = /(\/app\/static\/[A-Za-z0-9_./-]+)\?v=[A-Za-z0-9@._-]*/g;
+
+const NO_MIN = new Set(["engine.js", "i18n-all.js"]);
+
+/** Hand-written sources that get a .min copy. */
+function minSources(): string[] {
+  const out: string[] = [];
+  for (const [dir, ext] of [["js", ".js"], ["css", ".css"]] as const) {
+    const d = path.join(PUB, "app", "static", dir);
+    for (const n of readdirSync(d)) {
+      if (n.endsWith(ext) && !n.endsWith(".min" + ext) && !NO_MIN.has(n)) out.push(path.join(d, n));
+    }
+  }
+  return out;
+}
+
+export function minPath(src: string): string {
+  return src.replace(/\.(js|css)$/, ".min.$1");
+}
+
+export function minify(src: string): string {
+  const code = readFileSync(src, "utf8");
+  const loader = src.endsWith(".css") ? "css" : "js";
+  // No format: plain scripts keep their top-level names (other scripts call them).
+  return transformSync(code, { loader, minify: true, legalComments: "none" }).code;
+}
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const n of readdirSync(dir)) {
@@ -47,7 +80,21 @@ export function stampAll(write: boolean): string[] {
   const changed = new Set<string>();
   for (let pass = 0; pass < 6; pass++) {
     let any = false;
+    for (const src of minSources()) {
+      const out = minPath(src);
+      let old = "";
+      try { old = readFileSync(out, "utf8"); } catch { /* new */ }
+      const next = minify(src);
+      if (next !== old) {
+        any = true;
+        changed.add(path.relative(ROOT, out));
+        if (!write) return [...changed];
+        writeFileSync(out, next);
+        if (!files.includes(out)) files.push(out);
+      }
+    }
     for (const f of files) {
+      if (/\.min\.(js|css)$/.test(f)) continue; // regenerated from its source below
       const old = readFileSync(f, "utf8");
       let next = stampText(old);
       if (f.endsWith("sw.js")) next = stampCache(next);

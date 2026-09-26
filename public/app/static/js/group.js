@@ -33,7 +33,10 @@
       S.filling = true;
       miss.hidden = true;
       api('rate/fill', { body: { group_id: GID } }).then(function (r) {
-        if (r.ok && r.data.added) return S.reload().then(function () { S.filling = false; });
+        if (r.ok && r.data.added) {
+          if (S.takeView(r)) { S.filling = false; return; }
+          return S.reload().then(function () { S.filling = false; });
+        }
         S.filling = 'failed';
         render();
       });
