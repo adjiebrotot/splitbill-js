@@ -56,6 +56,8 @@ Route handlers that touch `pg`, `@node-rs/bcrypt`, `@napi-rs/canvas` or `pdf-lib
 
 `public/app/static/pages/*.html`, reached by `rewrites()` in `next.config.mjs`. No function renders a page. Each page's `boot.js` redirects signed-out users (hint cookie `sb_auth`), picks the language (`sb_lang`), and starts ONE `/app/api/boot` request. Add a page → add the rewrite, the `shellFor()` mapping and `STATIC` entry in `public/sw.js`.
 
+Instant feel: `sw.js` serves page shells cache first. Home and group pages draw the last kept boot payload (`sbBootCached()`, localStorage `sb_boot:*`) at once, then the live one; nothing is fetched or written on a kept view (`S.stale`). Home warms trip views (`S.prefetch`) so "Add Bill for" opens with no wait, and "Split One Bill" opens its editor on a draft view while the one-off is created (`S.startOneOff`; writes wait on `S.ready()`, placeholder member id swapped by `S.onReal`).
+
 ## Cache busting is a script
 
 After ANY change under `public/app/static/` or `public/sw.js`:

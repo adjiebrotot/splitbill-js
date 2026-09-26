@@ -504,11 +504,46 @@
     renderAll();
     var fields = $('bill-fields').querySelectorAll('input, select, textarea, button');
     for (var i = 0; i < fields.length; i++) fields[i].disabled = !!readOnly;
+    takePeople();
     openModal('modal-bill', {
       initialFocus: B.tab === 'form' ? '#bill-desc' : null,
       onClose: function () { stopCam(); if (S.discardEmpty) S.discardEmpty(); },
     });
     preview();
+  };
+
+  /* The draft one-off now exists: its placeholder member ids become real. */
+  S.onReal = function (map) {
+    if (!B) return;
+    var to = function (id) { return Object.prototype.hasOwnProperty.call(map, id) ? map[id] : id; };
+    B.payer = to(B.payer);
+    B.items.forEach(function (it) { it.members = it.members.map(to); });
+    B.even = B.even.map(to);
+    var pcts = {};
+    Object.keys(B.pcts).forEach(function (k) { pcts[to(k)] = B.pcts[k]; });
+    B.pcts = pcts;
+    if (isModalOpen('modal-bill')) { renderAll(); schedule(); }
+  };
+
+  /* A newer view arrived while the editor is open (the live one after a
+     kept copy, or another write): people who joined meanwhile join the lines
+     meant for everyone, and the chips redraw. */
+  var _people = '', _known = {};
+  function takePeople() {
+    _people = S.view.members.map(function (m) { return m.id + ':' + m.active + ':' + m.name + ':' + (m.avatar || ''); }).join('|');
+    var was = _known;
+    _known = {};
+    S.view.members.forEach(function (m) { _known[m.id] = true; });
+    return was;
+  }
+  S.onEditorView = function () {
+    var key = _people;
+    var was = takePeople();
+    if (key === _people || !B || !isModalOpen('modal-bill') || B.readOnly) return;
+    if (!was[S.view.me]) return; // the draft's ids were just swapped (S.onReal)
+    S.view.members.forEach(function (m) { if (m.active && !was[m.id]) place(m.id, null, null); });
+    renderAll();
+    schedule();
   };
 
   window.fillBillFromDraft = function (d) {
@@ -815,6 +850,16 @@
   $('bill-form').addEventListener('submit', function (ev) {
     ev.preventDefault();
     if (B.readOnly || $('bill-fields').hidden) return;
+    // A draft one-off saves once it exists, with its real member ids.
+    if (!S.draft) return save();
+    var btn = $('bill-save');
+    setBusy(btn, true);
+    S.ready().then(function (ready) {
+      setBusy(btn, false);
+      if (ready && !S.draft && isModalOpen('modal-bill')) save();
+    });
+  });
+  function save() {
     preview();
     if (!ok) return;
     var built;
@@ -827,7 +872,7 @@
     S.act('bill/save', body, t('bill.saved'), $('bill-save')).then(function (r) {
       if (r.ok) closeModal('modal-bill');
     });
-  });
+  }
 
   // ── Photo and chat: the AI reads, the form stays the only thing that saves. ──
   function status(msg, isErr) {
@@ -869,6 +914,12 @@
     window.fillBillFromDraft(r.data);
   }
 
+  /* A request about the split waits until it exists (home's one-off is
+     created while its bill is already open). */
+  function onSplit(fn) {
+    return S.ready().then(function (ready) { return ready ? fn() : { ok: false, code: 'generic', params: {} }; });
+  }
+
   $('ai-chat-go').addEventListener('click', function (ev) {
     var btn = ev.currentTarget;
     var text = $('ai-text').value.trim();
@@ -876,7 +927,7 @@
     var bill = B;
     setBusy(btn, true);
     status(t('input.reading'));
-    api('ai/chat', { body: { group_id: S.gid, text: text } }).then(function (r) { setBusy(btn, false); done(r, bill); });
+    onSplit(function () { return api('ai/chat', { body: { group_id: S.gid, text: text } }); }).then(function (r) { setBusy(btn, false); done(r, bill); });
   });
 
   /* Normalise before upload. Vision models bill by pixels, so the photo is
@@ -925,11 +976,13 @@
       var th = $('ai-thumb');
       th.src = URL.createObjectURL(b);
       th.hidden = false;
-      var fd = new FormData();
-      fd.append('group_id', S.gid);
-      fd.append('caption', $('ai-caption').value);
-      fd.append('file', photo, 'receipt.jpg');
-      return api('ai/photo', { body: fd });
+      return onSplit(function () {
+        var fd = new FormData();
+        fd.append('group_id', S.gid);
+        fd.append('caption', $('ai-caption').value);
+        fd.append('file', photo, 'receipt.jpg');
+        return api('ai/photo', { body: fd });
+      });
     }).then(function (r) { done(r, bill); });
   }
 

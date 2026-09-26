@@ -74,21 +74,58 @@
         icon('plus') + ' <span>' + esc(t('bill.add_for', g.name)) + '</span></button>';
     }).join('');
   }
-  /* The bill editor opens right here, on the trip's view: no page load. */
+  /* The bill editor opens right here, on the trip's view: no page load and,
+     with the view kept from before (or warmed below), no wait either. The
+     live view follows and redraws the open editor. */
   var S = window.SB;
   document.getElementById('trip-bills').addEventListener('click', function (ev) {
     var b = ev.target.closest('button[data-id]');
     if (!b) return;
     var gid = b.getAttribute('data-id');
-    setBusy(b, true);
-    S.load(gid).then(function (r) {
+    var shown = false;
+    var live = S.open(gid);
+    if (S.view && S.gid === gid && S.stale && S.canAddBill()) { window.openBill(null); shown = true; }
+    else setBusy(b, true);
+    live.then(function (r) {
       setBusy(b, false);
-      if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+      if (S.gid !== gid) return;
+      if (!r.ok) {
+        if (shown) closeModal('modal-bill');
+        return showToast(errMsg(r.code, r.params), 'error');
+      }
       // Nothing to add here (closed, or no longer a member): the trip page says why.
-      if (!S.canAddBill()) { location.href = '/app/g/' + gid; return; }
-      window.openBill(null);
+      if (!S.canAddBill()) {
+        if (shown) closeModal('modal-bill');
+        location.href = '/app/g/' + gid;
+        return;
+      }
+      if (!shown) window.openBill(null);
     });
   });
+
+  /* Warm what a tap is likely to open: the trips on the buttons above, once
+     the list is drawn, and any split a pointer or focus lands on. Each view
+     is kept (boot.js), so its page or its bill editor draws at once. */
+  var warmed = {};
+  function warm(gid) {
+    if (OFFLINE || !gid || warmed[gid]) return;
+    warmed[gid] = true;
+    S.prefetch(gid);
+  }
+  function warmTrips() {
+    var later = window.requestIdleCallback || function (fn) { return setTimeout(fn, 200); };
+    later(function () {
+      var bs = document.querySelectorAll('#trip-bills button[data-id]');
+      for (var i = 0; i < bs.length; i++) warm(bs[i].getAttribute('data-id'));
+    });
+  }
+  ['pointerover', 'touchstart', 'focusin'].forEach(function (type) {
+    document.getElementById('splits-body').addEventListener(type, function (ev) {
+      var tr = ev.target.closest && ev.target.closest('tr[data-id]');
+      if (tr) warm(tr.getAttribute('data-id'));
+    }, { passive: true });
+  });
+
   // A saved bill changes the list's figures; a person added mid-bill needs the view.
   S.afterWrite = function (path, fresh, r) {
     if (path !== 'bill/save') return fresh ? Promise.resolve() : S.reload();
@@ -196,16 +233,16 @@
 
   /* A one-off needs nothing up front: it is named after its bill, people are
      added in the bill, and leaving before saving leaves nothing behind. */
-  document.getElementById('new-bill').addEventListener('click', function (ev) {
+  document.getElementById('new-bill').addEventListener('click', function () {
     if (OFFLINE) return showToast(errMsg('offline'), 'error');
-    var btn = ev.currentTarget;
-    setBusy(btn, true);
-    api('groups', {
-      body: { kind: 'one_off', name: t('home.new_bill_name'), currency: (ME && ME.default_currency) || 'IDR', members: [] },
-    }).then(function (r) {
-      if (!r.ok) { setBusy(btn, false); return showToast(errMsg(r.code, r.params), 'error'); }
-      location.href = '/app/g/' + r.data.group_id + '#add-bill';
+    if (!ME) return;
+    // Opens at once on a draft; the split is created meanwhile (sb.js).
+    S.startOneOff(ME, t('home.new_bill_name'), ME.default_currency || 'IDR').then(function (r) {
+      if (r.ok || r.gone) return;
+      closeModal('modal-bill');
+      showToast(errMsg(r.code, r.params), 'error');
     });
+    window.openBill(null);
   });
 
   document.getElementById('new-form').addEventListener('submit', function (ev) {
@@ -219,29 +256,40 @@
         name: document.getElementById('new-name').value,
         currency: document.getElementById('new-currency').value,
         members: people,
+        view: true,
       },
     }).then(function (r) {
       setBusy(btn, false);
       if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+      // The trip's page draws this view at once instead of asking again.
+      if (r.view && window.sbCachePut) window.sbCachePut('group&id=' + r.data.group_id, { me: ME, group: r.view, ai: S.ai });
       location.href = '/app/g/' + r.data.group_id;
     });
   });
 
-  sbBoot().then(function (r) {
-    if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+  /* Draw at once from the list this browser kept, then again live. */
+  function show(r) {
     ME = r.data.me;
     OFFLINE = !!r.offline;
     S.me = ME;
     S.ai = r.data.ai !== false;
     topbarSetUser(ME);
+    var b = document.getElementById('offline-banner');
     if (OFFLINE) {
-      var b = document.getElementById('offline-banner');
       b.textContent = t('offline.banner', fmtDate(new Date(r.at).toISOString()));
       b.hidden = false;
-    }
+    } else b.hidden = true;
     showVerify(ME);
     GROUPS = r.data.groups || [];
     renderList(GROUPS);
     renderTripBills(GROUPS);
+  }
+  var kept = window.sbBootCached && window.sbBootCached();
+  if (kept && kept.data && kept.data.me) show(kept);
+
+  sbBoot().then(function (r) {
+    if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+    show(r);
+    if (!OFFLINE) warmTrips();
   });
 }());
