@@ -34,6 +34,12 @@ describe("i18n", () => {
     }
   });
 
+  it("keeps Bill as Bill in Indonesian, never Tagihan", () => {
+    for (const [k, v] of Object.entries(STRINGS)) {
+      expect(/tagihan/i.test(v.id), k).toBe(false);
+    }
+  });
+
   it("uses Akun for account", () => {
     for (const [k, v] of Object.entries(STRINGS)) expect(/rekening/i.test(v.id), k).toBe(false);
   });

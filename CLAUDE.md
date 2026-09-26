@@ -71,7 +71,7 @@ Anything that renders follows `DESIGN-SYSTEM.md`. Never invent a spacing value, 
 
 ## i18n: every UI string in BOTH languages
 
-`src/i18n.ts` is the only source. English + Bahasa Indonesia, both always. Static HTML uses `data-i18n*` attributes; JS uses `t('key')`; errors are `err.<code>`. Indonesian must read naturally ("Akun" for account). **No em dash in any user-facing string**; a missing value prints `-`. `tests/unit/i18n.test.ts` checks keys, translations and em dashes.
+`src/i18n.ts` is the only source. English + Bahasa Indonesia, both always. Static HTML uses `data-i18n*` attributes; JS uses `t('key')`; errors are `err.<code>`. Indonesian must read naturally ("Akun" for account). "Bill" stays "Bill" in Indonesian, never "Tagihan" (test). **No em dash in any user-facing string**; a missing value prints `-`. `tests/unit/i18n.test.ts` checks keys, translations and em dashes.
 
 ## Never put JSON.stringify() inside a double-quoted HTML attribute
 
