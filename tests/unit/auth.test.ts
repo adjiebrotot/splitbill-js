@@ -64,3 +64,15 @@ describe("helpers", () => {
     expect(() => toMinor(2 ** 60)).toThrow();
   });
 });
+
+describe("email provider", () => {
+  it("counts as set up only with RESEND_API_KEY", async () => {
+    const { emailConfigured } = await import("@/services/email_service");
+    const had = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    expect(emailConfigured()).toBe(false);
+    process.env.RESEND_API_KEY = "re_test";
+    expect(emailConfigured()).toBe(true);
+    if (had === undefined) delete process.env.RESEND_API_KEY; else process.env.RESEND_API_KEY = had;
+  });
+});

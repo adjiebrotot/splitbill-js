@@ -1114,6 +1114,9 @@
     padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5;
     background: #eef5ff; color: var(--primary-ink); margin-bottom: 14px;
   }
+  /* The plain banner is a shade off --bg; one that stands on the page for a
+     while (Confirm your email) takes a deeper tint and a primary edge. */
+  .banner.info { background: #e3eeff; border: 1px solid var(--primary); }
   .banner.warn { background: #fff6e0; color: #6b4e00; }
   .banner.error { background: var(--danger); color: var(--danger-ink); }
   .banner .btn { margin-left: 8px; }
@@ -1218,7 +1221,7 @@
   .tool-card > .card-desc { font-size: 13px; color: var(--text-muted); margin-top: 4px; line-height: 1.5; }
   .tool-tbl tr.total-row td { font-weight: 700; border-top: 2px solid var(--border); }
 
-  /* A card that folds to its title (Confirm your email). */
+  /* A card or banner that folds to its title (Confirm your email). */
   .collapse-card > summary {
     display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
   }
@@ -1226,6 +1229,12 @@
   .collapse-card > summary h2 { flex: 1 1 auto; }
   .collapse-card > summary .icon { color: var(--text-muted); transition: transform 0.15s; }
   .collapse-card[open] > summary .icon { transform: rotate(180deg); }
+  /* Folded into a banner: banner-sized title, the chevron in the banner's ink,
+     and the body a banner's padding under the title. */
+  .banner.collapse-card > summary h2 { font-size: 13px; font-weight: 600; }
+  .banner.collapse-card > summary .icon { color: inherit; }
+  .banner.collapse-card > .stack { margin-top: 10px; }
+  .banner.collapse-card .btn { margin-left: 0; }
 
   .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn-row .btn { flex: 1 1 auto; }
