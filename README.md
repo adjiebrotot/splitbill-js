@@ -8,6 +8,7 @@ Split bills among friends: one-off bills and whole trips. Next.js route handlers
 - **Trip**: many bills over a trip, members with or without the app, many currencies with one group rate table (market rates are added automatically; the owner can edit them), mid-trip repayments. The owner finalises at the end (no more bills); transfers are ticked off as paid, and the trip is settled when all are; the owner can reopen.
 - **Input**: receipt photo first, then chat text, then the form. AI output is always a draft you check; names it cannot match become one-tap "+ Name" chips.
 - **Reports**: group (who pays whom) and individual, as text to copy or PNG / PDF. Each split is Open, Final or Settled: an open report says NOT FINAL, a final one FINAL · NOT SETTLED (both watermarked), a settled one carries no watermark.
+- **Avatars**: everyone shows as a small avatar beside their name: a photo uploaded in Settings (cropped to a 256px square, stored in Vercel Blob; needs `BLOB_READ_WRITE_TOKEN`), else two initials on a colour.
 - **Telegram**: private chat and group chats.
 
 ## Accounting integrity

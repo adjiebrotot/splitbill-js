@@ -19,6 +19,7 @@ import { cleanText, safeTimezone, DEFAULT_TZ } from "../utils";
 import { t } from "../i18n";
 import * as A from "./actions";
 import { USERNAME_RE } from "./user_service";
+import { avatarStore } from "./avatar";
 import { MigrationError, migrationStatus, runMigrations } from "./migrate";
 import { loadGroups } from "./repo";
 import { compute, stageFor, type Stage } from "./ledger";
@@ -317,11 +318,15 @@ export async function unlinkTelegram(p: { user_id: unknown }) {
 export async function deleteUser(p: { user_id: unknown; confirm: unknown }) {
   const user = await _getUser(p.user_id);
   if (String(p.confirm ?? "").trim().toLowerCase() !== user.username.toLowerCase()) fail("admin_confirm_mismatch");
-  return atomic(async () => {
+  const out = await atomic(async () => {
     const handover = await A.adminHandOverGroups(user.user_id);
-    await execute("DELETE FROM users WHERE user_id = $1", [user.user_id]);
-    return { deleted: user.username, handover };
+    const r = await fetchone("DELETE FROM users WHERE user_id = $1 RETURNING avatar_url", [user.user_id]);
+    return { deleted: user.username, handover, avatar: r?.[0] ? String(r[0]) : null };
   });
+  // The photo goes with the account, once the delete has committed.
+  const store = avatarStore();
+  if (out.avatar && store) await store.del(out.avatar).catch((e) => console.error("[avatar] delete", e));
+  return { deleted: out.deleted, handover: out.handover };
 }
 
 // ── system ──────────────────────────────────────────────────────────────────
@@ -330,7 +335,7 @@ export async function deleteUser(p: { user_id: unknown; confirm: unknown }) {
 const ENV_VARS = [
   "DATABASE_URL", "DB_DRIVER", "SETUP_SECRET", "ADMIN_PASSWORD", "PUBLIC_BASE_URL", "CRON_SECRET",
   "LLM_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_USERNAME", "RESEND_API_KEY", "EMAIL_FROM",
-  "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "USER_TIMEZONE", "AI_DAILY_LIMIT",
+  "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "USER_TIMEZONE", "AI_DAILY_LIMIT", "BLOB_READ_WRITE_TOKEN",
 ];
 
 export async function systemStatus() {

@@ -76,13 +76,17 @@ Anything that renders follows `DESIGN-SYSTEM.md`. Never invent a spacing value, 
 
 `src/i18n.ts` is the only source. English + Bahasa Indonesia, both always. Static HTML uses `data-i18n*` attributes; JS uses `t('key')`; errors are `err.<code>`. Indonesian must read naturally ("Akun" for account). "Bill" stays "Bill" in Indonesian, never "Tagihan" (test). **No em dash in any user-facing string**; a missing value prints `-`. `tests/unit/i18n.test.ts` checks keys, translations and em dashes.
 
+## Avatars
+
+A person is shown by `avatarHtml()` (ui.js): their photo, else two letters (`initials()`: "Jack Mo" JM, "Dwiki" Dw) on one of the `.av-0`...`.av-7` pastels. In a split use `S.avatar(id)` / `S.who(id)` (sb.js): it gives two members with the same letters different colours. An avatar never stands alone where a person is picked: a picker chip is avatar + `S.shortName(id)` (first word, full name when two members share it). Photos: Settings uploads, `setAvatar` (`user_service.ts`) normalises through `services/avatar.ts` (centre square, 256px WebP) and stores in Vercel Blob; `users.avatar_url` is part of the group cache key (`USERS_KEY_SQL`).
+
 ## Never put JSON.stringify() inside a double-quoted HTML attribute
 
 Escape with `esc()` (ui.js) first. Same for any value in an attribute.
 
 ## Secrets
 
-`LLM_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`, `SETUP_SECRET`, `ADMIN_PASSWORD` live in `.env.local` (gitignored) and Vercel env. Never commit them.
+`LLM_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`, `SETUP_SECRET`, `ADMIN_PASSWORD`, `BLOB_READ_WRITE_TOKEN` live in `.env.local` (gitignored) and Vercel env. Never commit them.
 
 ## Tests
 

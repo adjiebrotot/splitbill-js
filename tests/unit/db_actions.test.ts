@@ -458,6 +458,61 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     expect(bad).toMatchObject({ ok: false, code: "payment_self" });
     expect(bad.view).toBeUndefined();
   });
+  it("avatar: upload normalises and replaces the old file; every split shows it at once", async () => {
+    const { handleApi } = await import("@/webapp/api_routes");
+    const { sessionValue } = await import("@/webapp/auth");
+    const { _setAvatarStore } = await import("@/services/avatar");
+    const { createCanvas } = await import("@napi-rs/canvas");
+    const files = new Map<string, Uint8Array>();
+    let n = 0;
+    _setAvatarStore({
+      put: async (path, bytes) => { const url = `https://blob.test/${path}?${++n}`; files.set(url, bytes); return url; },
+      del: async (url) => { files.delete(url); },
+    });
+    try {
+      const cookie = `sb_session=${sessionValue(uid.bob, "bob", "en")}`;
+      const upload = async (bytes: Uint8Array, type: string) => {
+        const fd = new FormData();
+        fd.append("file", new Blob([bytes as Uint8Array<ArrayBuffer>], { type }), "a.jpg");
+        return (await handleApi(new Request("https://x.test/app/api/settings/avatar", { method: "POST", body: fd, headers: { cookie } }), "settings/avatar")).json();
+      };
+      const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Faces", currency: "USD", members: [{ username: "bob" }] });
+      const before = await view(g.group_id);
+      expect(before.members.find((m) => m.name === "Bob")!.avatar).toBeNull();
+
+      const r = await upload(new Uint8Array(createCanvas(900, 600).toBuffer("image/png")), "image/png");
+      expect(r.ok).toBe(true);
+      const first = r.data.avatar as string;
+      expect(files.size).toBe(1);
+      const { loadImage } = await import("@napi-rs/canvas");
+      const img = await loadImage(Buffer.from(files.get(first)!));
+      expect([img.width, img.height]).toEqual([256, 256]);
+      // No revision bump: the photo is part of the cache key, so the warm read sees it.
+      expect((await view(g.group_id)).members.find((m) => m.name === "Bob")!.avatar).toBe(first);
+
+      const again = await upload(new Uint8Array(createCanvas(300, 300).toBuffer("image/jpeg")), "image/jpeg");
+      expect(again.data.avatar).not.toBe(first);
+      expect([...files.keys()]).toEqual([again.data.avatar]);
+
+      expect(await upload(new TextEncoder().encode("not a picture"), "image/png")).toMatchObject({ ok: false, code: "image_invalid" });
+      expect([...files.keys()]).toEqual([again.data.avatar]);
+
+      const off = await U.removeAvatar(uid.bob);
+      expect(off.avatar).toBeNull();
+      expect(files.size).toBe(0);
+      expect((await view(g.group_id)).members.find((m) => m.name === "Bob")!.avatar).toBeNull();
+
+      _setAvatarStore(null);
+      const saved = process.env.BLOB_READ_WRITE_TOKEN;
+      delete process.env.BLOB_READ_WRITE_TOKEN;
+      expect((await U.getMe(uid.bob))!.avatar_upload).toBe(false);
+      expect(await upload(new Uint8Array(createCanvas(10, 10).toBuffer("image/png")), "image/png")).toMatchObject({ ok: false, code: "avatar_unavailable" });
+      if (saved !== undefined) process.env.BLOB_READ_WRITE_TOKEN = saved;
+    } finally {
+      _setAvatarStore(null);
+    }
+  });
+
   it("home list: rows come from group_summaries, stale ones are recomputed and stored", async () => {
     const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Summary", currency: "USD", members: [{ name: "Fay" }] });
     // New group: no summary yet, so the list computes it and stores it.

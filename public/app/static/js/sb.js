@@ -29,8 +29,52 @@
   }
   function myMember() { return S.view.me ? member(S.view.me) : null; }
 
+  /* Avatars in one split: each member's colour, worked out once per view.
+     An app user keeps their own colour (keyed by user, as in Settings); when
+     two members would wear the same letters on the same colour, the later
+     one takes the next free colour, so no two faces in a split look alike. */
+  var _avView = null, _av = {};
+  function avatarInfo(id) {
+    if (_avView !== S.view) {
+      _avView = S.view;
+      _av = {};
+      var taken = {};
+      S.view.members.forEach(function (m) {
+        var ini = initials(m.name).toLowerCase();
+        var c = avatarColor(m.user_id ? 'u' + m.user_id : 'm' + m.id);
+        var used = taken[ini] || (taken[ini] = {});
+        for (var i = 0; i < AVATAR_COLORS && used[c]; i++) c = (c + 1) % AVATAR_COLORS;
+        used[c] = true;
+        _av[m.id] = { name: m.name, url: m.avatar || null, color: c };
+      });
+    }
+    return _av[id] || { name: '?', url: null, color: 0 };
+  }
+  /* A member's avatar. size: 'sm' | 'lg'; label when no name stands beside it. */
+  function avatar(id, size, label) {
+    var a = avatarInfo(id);
+    return avatarHtml({ name: a.name, url: a.url, color: a.color, size: size, label: label ? nameOf(id) : '' });
+  }
+  /* Avatar and name, for a list row or a sentence. */
+  function who(id, size) {
+    return '<span class="who-av">' + avatar(id, size) + '<span>' + esc(nameOf(id)) + '</span></span>';
+  }
+  /* The name a picker chip shows: the first word, unless another member of
+     the split starts with the same word ("Jack Mo" and "Jack Li" stay whole). */
+  function shortName(id) {
+    var m = member(id);
+    if (!m) return '?';
+    var first = m.name.trim().split(/\s+/)[0];
+    var key = first.toLowerCase();
+    var clash = S.view.members.some(function (o) { return o.id !== id && o.name.trim().split(/\s+/)[0].toLowerCase() === key; });
+    return clash ? m.name : first;
+  }
+
   S.member = member;
   S.nameOf = nameOf;
+  S.avatar = avatar;
+  S.who = who;
+  S.shortName = shortName;
   S.isTravel = isTravel;
   S.isOpen = isOpen;
 

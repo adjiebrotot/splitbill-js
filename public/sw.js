@@ -7,9 +7,9 @@
  *   page loads      network first; offline, the page's cached shell, which
  *                   then renders its last boot payload from localStorage.
  */
-const CACHE = 'sb-09610d57';
+const CACHE = 'sb-70ff7b80';
 const STATIC = [
-  '/app/static/css/shared.min.css?v=4e8ef7d9',
+  '/app/static/css/shared.min.css?v=782c1c14',
   '/app/static/assets/fonts/dm-sans-latin-wght-normal.woff2?v=9fea608a',
   '/app/static/assets/fonts/dm-sans-latin-ext-wght-normal.woff2?v=a5d38fe9',
   '/app/static/assets/fonts/dm-mono-latin-400-normal.woff2?v=e1896b13',
@@ -17,30 +17,30 @@ const STATIC = [
   '/app/static/assets/fonts/dm-mono-latin-ext-400-normal.woff2?v=a52e19eb',
   '/app/static/assets/fonts/dm-mono-latin-ext-500-normal.woff2?v=8711f938',
   '/app/static/assets/icons.svg?v=17f4531f',
-  '/app/static/js/i18n-all.js?v=6e924ffd',
+  '/app/static/js/i18n-all.js?v=c889fa2d',
   '/app/static/js/boot.min.js?v=54359d3c',
   '/app/static/js/engine.js?v=7c879c47',
-  '/app/static/js/ui.min.js?v=5ff6dcc2',
+  '/app/static/js/ui.min.js?v=57c20b9a',
   '/app/static/js/i18n.min.js?v=23384dda',
-  '/app/static/js/topbar.min.js?v=448cca10',
+  '/app/static/js/topbar.min.js?v=901d34bd',
   '/app/static/js/currency.min.js?v=69826b20',
-  '/app/static/js/sb.min.js?v=68929ddb',
+  '/app/static/js/sb.min.js?v=487a00c9',
   '/app/static/js/home.min.js?v=bbaaa1e5',
-  '/app/static/js/group.min.js?v=25668eed',
-  '/app/static/js/bill.min.js?v=e05e47b6',
-  '/app/static/js/settings.min.js?v=1dce1e68',
+  '/app/static/js/group.min.js?v=b3d6e063',
+  '/app/static/js/bill.min.js?v=cfff4427',
+  '/app/static/js/settings.min.js?v=e966f9f7',
   '/app/static/js/join.min.js?v=0a643cc4',
   '/app/static/js/auth.min.js?v=b8c913fe',
   '/app/static/js/admin.min.js?v=2804245e',
   '/app/static/icons/icon-192.png?v=34543553',
-  '/app/static/pages/landing.html?v=7cf8205d',
-  '/app/static/pages/login.html?v=abbe8a49',
-  '/app/static/pages/register.html?v=95fe59e6',
-  '/app/static/pages/home.html?v=3b6c2b52',
-  '/app/static/pages/group.html?v=1e45aa9c',
-  '/app/static/pages/join.html?v=021e17e6',
-  '/app/static/pages/settings.html?v=de94013b',
-  '/app/static/pages/admin.html?v=1551d39d',
+  '/app/static/pages/landing.html?v=021cce83',
+  '/app/static/pages/login.html?v=8c548e85',
+  '/app/static/pages/register.html?v=3df07415',
+  '/app/static/pages/home.html?v=a9b7178d',
+  '/app/static/pages/group.html?v=3d18d3b6',
+  '/app/static/pages/join.html?v=858e0799',
+  '/app/static/pages/settings.html?v=20dd237c',
+  '/app/static/pages/admin.html?v=3c813b6c',
 ];
 
 /* Which shell a pretty URL is served from (mirrors next.config.mjs rewrites). */

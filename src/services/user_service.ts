@@ -11,6 +11,7 @@ import { hashPassword, passwordProblem, verifyPassword } from "../password";
 import { isCurrency, normCurrency } from "../engine";
 import { cleanText, safeTimezone, DEFAULT_TZ } from "../utils";
 import { emailConfigured, sendVerificationEmail } from "./email_service";
+import { avatarStore, normalizeAvatar } from "./avatar";
 
 export const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -31,10 +32,14 @@ export interface Me {
   timezone: string;
   default_currency: string;
   telegram_linked: boolean;
+  /** Uploaded photo (Vercel Blob URL); null draws initials. */
+  avatar: string | null;
+  /** false while no Blob store is set up: nowhere to keep a photo. */
+  avatar_upload: boolean;
 }
 
 const ME_SQL = `SELECT user_id::text, username, display_name, email, email_verified, password IS NOT NULL,
-  language, timezone, default_currency, telegram_id IS NOT NULL FROM users WHERE user_id = $1`;
+  language, timezone, default_currency, telegram_id IS NOT NULL, avatar_url FROM users WHERE user_id = $1`;
 
 function _me(r: unknown[]): Me {
   return {
@@ -49,6 +54,8 @@ function _me(r: unknown[]): Me {
     timezone: String(r[7]),
     default_currency: String(r[8]),
     telegram_linked: r[9] === true || r[9] === "t",
+    avatar: r[10] === null || r[10] === undefined ? null : String(r[10]),
+    avatar_upload: avatarStore() !== null,
   };
 }
 
@@ -194,6 +201,42 @@ export async function changePassword(userId: string, current: unknown, next: unk
   const weak = passwordProblem(String(next ?? ""));
   if (weak) fail(weak.replace(/^err\./, ""));
   await execute("UPDATE users SET password = $1 WHERE user_id = $2", [hashPassword(String(next)), userId]);
+}
+
+/**
+ * A new photo. The normalised square goes to Blob first; only once the row
+ * points at it is the old file deleted (best effort: a leftover file costs
+ * storage, a missing one would break the avatar).
+ */
+export async function setAvatar(userId: string, bytes: Uint8Array, mime: string): Promise<Me> {
+  const store = avatarStore();
+  if (!store) fail("avatar_unavailable");
+  const webp = await normalizeAvatar(bytes, mime);
+  const url = await store.put(`avatars/${userId}.webp`, webp, "image/webp");
+  const r = await fetchone(
+    `UPDATE users u SET avatar_url = $1 FROM (SELECT avatar_url FROM users WHERE user_id = $2 FOR UPDATE) old
+      WHERE u.user_id = $2 RETURNING old.avatar_url`,
+    [url, userId],
+  );
+  if (!r) {
+    await store.del(url).catch(() => {});
+    fail("login_failed", {}, 401);
+  }
+  if (r[0]) await store.del(String(r[0])).catch((e) => console.error("[avatar] delete", e));
+  return (await getMe(userId))!;
+}
+
+/** Back to initials. */
+export async function removeAvatar(userId: string): Promise<Me> {
+  const r = await fetchone(
+    `UPDATE users u SET avatar_url = NULL FROM (SELECT avatar_url FROM users WHERE user_id = $1 FOR UPDATE) old
+      WHERE u.user_id = $1 RETURNING old.avatar_url`,
+    [userId],
+  );
+  if (!r) fail("login_failed", {}, 401);
+  const store = avatarStore();
+  if (r[0] && store) await store.del(String(r[0])).catch((e) => console.error("[avatar] delete", e));
+  return (await getMe(userId))!;
 }
 
 export async function findUserByUsername(username: unknown): Promise<{ user_id: string; username: string; display_name: string } | null> {
