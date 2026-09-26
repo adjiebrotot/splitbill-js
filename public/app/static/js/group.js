@@ -2,59 +2,21 @@
  * computed view (the engine), except the live preview inside the bill editor
  * (bill.js), which runs the same engine in the browser. */
 (function () {
-  var S = { view: null, me: null, offline: false };
+  var S = window.SB;
   // Page per list, and how many rows a page holds. Payments and Members
   // share a row of the layout, so they page alike and stand the same height.
   var PAGE = { bills: 1, pay: 1, mem: 1 };
   var SIZE = { bills: 10, pay: 5, mem: 5 };
-  window.SB = S;
 
   var $ = function (id) { return document.getElementById(id); };
   var GID = (location.pathname.match(/^\/app\/g\/([A-Za-z0-9]+)/) || [])[1] || '';
+  S.gid = GID;
 
-  // ── lookups ──
-  function member(id) {
-    var ms = S.view.members;
-    for (var i = 0; i < ms.length; i++) if (ms[i].id === id) return ms[i];
-    return null;
-  }
-  function nameOf(id) {
-    var m = member(id);
-    if (!m) return '?';
-    return m.id === S.view.me ? m.name + ' (' + t('mem.you') + ')' : m.name;
-  }
+  // ── lookups (sb.js) ──
+  var member = S.member, nameOf = S.nameOf, isTravel = S.isTravel, isOpen = S.isOpen;
   function G() { return S.view.group; }
-  function isOpen() { return G().status === 'open'; }
-  function isTravel() { return G().kind === 'travel'; }
-  function myMember() { return S.view.me ? member(S.view.me) : null; }
   function gmoney(minor) { return money(minor, G().currency, G().dp); }
   function gmoneyHtml(minor) { return moneyHtml(minor, G().currency, G().dp); }
-
-  S.member = member;
-  S.nameOf = nameOf;
-  S.isTravel = isTravel;
-
-  S.canAddBill = function () {
-    var me = myMember();
-    if (S.offline || !isOpen() || !me || !me.active) return false;
-    return isTravel() || (S.view.is_owner && !S.view.bills.length);
-  };
-  S.canEditBill = function (b) {
-    if (S.offline || !isOpen()) return false;
-    if (S.view.is_owner) return true;
-    return isTravel() && b.created_by === S.me.user_id;
-  };
-  S.canAddMember = function () {
-    return !S.offline && isOpen() && S.view.is_owner;
-  };
-  S.canRecord = function (fromId, toId) {
-    if (S.offline) return false;
-    if (S.view.is_owner) return true;
-    var from = member(fromId), to = member(toId);
-    if (!from || !to) return false;
-    if (to.user_id === S.me.user_id) return true;
-    return to.user_id === null && from.user_id === S.me.user_id;
-  };
 
   // ── render ──
   function render() {
@@ -287,20 +249,7 @@
   }
 
   /* "16250.5" -> "16,250.5" / "16.250,5". */
-  function fmtRate(text) {
-    var parts = String(text).split('.');
-    var id = window.__LANG__ === 'id';
-    return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, id ? '.' : ',') + (parts[1] ? (id ? ',' : '.') + parts[1] : '');
-  }
-
-  function rateText(r) {
-    // Big side first, meaningful decimals: inverted means 1 settlement unit = rate foreign.
-    var d = window.SBEngine.displayRate(r.rate, r.inverted);
-    return d.inverted
-      ? '1 ' + G().currency + ' = ' + fmtRate(d.text) + ' ' + r.currency
-      : '1 ' + r.currency + ' = ' + fmtRate(d.text) + ' ' + G().currency;
-  }
-  S.rateText = rateText;
+  var rateText = S.rateText;
 
   function renderRates() {
     if (!isTravel()) return;
@@ -321,40 +270,19 @@
 
   // ── data ──
   function setView(data, offline, at) {
-    S.view = data.group;
-    S.me = data.me;
-    S.offline = !!offline;
-    topbarSetUser(S.me);
+    topbarSetUser(data.me);
     var b = $('offline-banner');
-    if (S.offline) {
+    if (offline) {
       b.textContent = t('offline.banner', fmtDate(new Date(at || Date.now()).toISOString()));
       b.hidden = false;
     } else b.hidden = true;
-    render();
+    S.setView(data.group, data.me, offline);
   }
-
-  S.reload = function () {
-    return api('group?id=' + encodeURIComponent(GID)).then(function (r) {
-      if (!r.ok) { showToast(errMsg(r.code, r.params), 'error'); return; }
-      setView({ group: r.data, me: S.me }, false);
-    });
+  // Every reload redraws the page; a reload is always live data.
+  S.onView = function () {
+    if (!S.offline) $('offline-banner').hidden = true;
+    render();
   };
-
-  /* Run a write, toast its error, reload on success. */
-  S.act = function (path, body, okMsg, btn) {
-    if (btn) setBusy(btn, true);
-    return api(path, { body: Object.assign({ group_id: GID }, body) }).then(function (r) {
-      if (btn) setBusy(btn, false);
-      if (!r.ok) {
-        showToast(errMsg(r.code, r.params), 'error');
-        if (r.status === 409) S.reload();
-        return r;
-      }
-      if (okMsg) showToast(okMsg);
-      return S.reload().then(function () { return r; });
-    });
-  };
-  S.gid = GID;
 
   /* The currency picker's Recommended: the user's default, this split's
      currency, then every currency its bills, payments and rates use. */
@@ -481,13 +409,7 @@
     });
   }));
 
-  /* A one-off is its bill. Left without one (closed before saving, or its
-     bill deleted), it is gone too: nothing was split. */
-  S.discardEmpty = function () {
-    var v = S.view;
-    if (!v || isTravel() || !isOpen() || !v.is_owner || S.offline || v.bills.length || v.payments.length) return;
-    api('group/delete', { body: { group_id: GID } }).then(function () { location.href = '/app'; });
-  };
+  S.onDiscarded = function () { location.href = '/app'; };
 
   function copyText(txt, msg) {
     var done = function () { showToast(msg || t('common.copied')); };
