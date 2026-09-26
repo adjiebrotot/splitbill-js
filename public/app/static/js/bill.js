@@ -34,11 +34,15 @@
               '<label for="ai-caption" data-i18n="input.caption">Note (optional)</label>' +
               '<input type="text" id="ai-caption" maxlength="300" data-i18n-ph="input.caption_ph" placeholder="Paid by Ali, drinks for Bob">' +
             '</div>' +
-            '<label class="photo-pick" for="ai-file" id="ai-pick">' +
-              '' + icon('camera') + '' +
-              '<span data-i18n="input.photo_pick">Take or choose a receipt photo</span>' +
-            '</label>' +
+            '<div id="ai-pick" class="stack">' +
+              '<label class="photo-pick" for="ai-file" id="ai-drop">' +
+                icon('upload') +
+                '<span data-i18n="input.photo_pick">Drop or choose a receipt picture</span>' +
+              '</label>' +
+              '<button type="button" class="btn btn-ghost btn-full" id="ai-cam-go">' + icon('camera') + ' <span data-i18n="input.photo_camera">or take a photo</span></button>' +
+            '</div>' +
             '<input type="file" id="ai-file" accept="image/*" hidden>' +
+            '<input type="file" id="ai-cam" accept="image/*" capture="environment" hidden>' +
             '<img id="ai-thumb" class="photo-thumb" alt="" hidden>' +
           '</div>' +
           '<div id="ai-chat" class="stack" hidden>' +
@@ -462,10 +466,7 @@
 
   function resetInput() {
     photo = null;
-    $('ai-file').value = '';
-    $('ai-thumb').hidden = true;
-    $('ai-thumb').removeAttribute('src');
-    $('ai-pick').classList.remove('busy');
+    showPick(true);
     $('ai-text').value = '';
     $('ai-caption').value = '';
     status('');
@@ -818,9 +819,20 @@
     el.hidden = !msg;
   }
 
+  /* The pickers until a photo is picked, then only that photo. */
+  function showPick(on) {
+    $('ai-file').value = '';
+    $('ai-cam').value = '';
+    $('ai-pick').hidden = !on;
+    var th = $('ai-thumb');
+    th.hidden = on;
+    if (on && th.src) { URL.revokeObjectURL(th.src); th.removeAttribute('src'); }
+  }
+
   function done(r, bill) {
-    $('ai-pick').classList.remove('busy');
     if (bill !== B) return; // closed or reset while reading
+    // A failed read gives the pickers back for another try.
+    if (!r.ok) showPick(true);
     // No AI on this server: say nothing, just hand over the form.
     if (!r.ok && r.code === 'ai_unavailable') {
       S.ai = false;
@@ -843,20 +855,34 @@
     api('ai/chat', { body: { group_id: S.gid, text: text } }).then(function (r) { setBusy(btn, false); done(r, bill); });
   });
 
-  /* Shrink before upload: 1600px long side, JPEG 0.85. Receipts stay
-     readable and a 5 MB phone photo becomes a few hundred KB. */
+  /* Normalise before upload. Vision models bill by pixels, so the photo is
+     capped at 1.2 MP and 1600px on the long side: about 950 x 1270 for a
+     phone photo, still ~20px per receipt line. Grey JPEG q0.8, since colour
+     adds nothing to printed text: a 5 MB phone photo becomes ~150 KB. The
+     server enforces the same budget (llm_client.ts normalizeImage). */
+  var MAX_SIDE = 1600, MAX_PIXELS = 1200000;
   function shrink(file) {
     return new Promise(function (resolve) {
       var img = new Image();
       var url = URL.createObjectURL(file);
       img.onload = function () {
-        var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        var w = img.naturalWidth, h = img.naturalHeight;
+        var scale = Math.min(1, MAX_SIDE / Math.max(w, h), Math.sqrt(MAX_PIXELS / (w * h)));
         var c = document.createElement('canvas');
-        c.width = Math.round(img.width * scale);
-        c.height = Math.round(img.height * scale);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        c.width = Math.max(1, Math.round(w * scale));
+        c.height = Math.max(1, Math.round(h * scale));
+        var ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        try {
+          var d = ctx.getImageData(0, 0, c.width, c.height), p = d.data;
+          for (var i = 0; i < p.length; i += 4) {
+            var y = (p[i] * 77 + p[i + 1] * 150 + p[i + 2] * 29) >> 8;
+            p[i] = p[i + 1] = p[i + 2] = y;
+          }
+          ctx.putImageData(d, 0, 0);
+        } catch (e) { /* keep colour */ }
         URL.revokeObjectURL(url);
-        c.toBlob(function (b) { resolve(b || file); }, 'image/jpeg', 0.85);
+        c.toBlob(function (b) { resolve(b || file); }, 'image/jpeg', 0.8);
       };
       img.onerror = function () { URL.revokeObjectURL(url); resolve(file); };
       img.src = url;
@@ -864,12 +890,12 @@
   }
 
   /* Picking the photo is the whole action: it is read at once. */
-  $('ai-file').addEventListener('change', function () {
-    var f = $('ai-file').files[0];
+  function readPhoto(f) {
     if (!f) return;
+    if (!/^image\//.test(f.type || '')) return status(errMsg('image_invalid', {}), true);
     var bill = B;
-    $('ai-pick').classList.add('busy');
     status(t('input.reading'));
+    $('ai-pick').hidden = true;
     shrink(f).then(function (b) {
       photo = b;
       var th = $('ai-thumb');
@@ -879,9 +905,25 @@
       fd.append('group_id', S.gid);
       fd.append('caption', $('ai-caption').value);
       fd.append('file', photo, 'receipt.jpg');
-      // The same photo picked again after an error must fire "change" again.
-      $('ai-file').value = '';
       return api('ai/photo', { body: fd });
     }).then(function (r) { done(r, bill); });
+  }
+
+  $('ai-file').addEventListener('change', function () { readPhoto($('ai-file').files[0]); });
+  $('ai-cam').addEventListener('change', function () { readPhoto($('ai-cam').files[0]); });
+  $('ai-cam-go').addEventListener('click', function () { $('ai-cam').click(); });
+
+  // Drag and drop onto the drop area.
+  var drop = $('ai-drop');
+  ['dragenter', 'dragover'].forEach(function (n) {
+    drop.addEventListener(n, function (ev) { ev.preventDefault(); drop.classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (n) {
+    drop.addEventListener(n, function () { drop.classList.remove('over'); });
+  });
+  drop.addEventListener('drop', function (ev) {
+    ev.preventDefault();
+    var f = ev.dataTransfer && ev.dataTransfer.files[0];
+    readPhoto(f);
   });
 }());

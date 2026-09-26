@@ -1257,10 +1257,9 @@
     text-transform: none; letter-spacing: normal; margin-bottom: 0;
   }
   .photo-pick .icon { width: 22px; height: 22px; }
-  .photo-pick:hover { background: var(--bg); }
+  .photo-pick:hover, .photo-pick.over { background: var(--bg); }
+  .photo-pick.over { border-color: var(--primary-strong); color: var(--primary-strong); }
   .photo-thumb { max-width: 100%; max-height: 180px; border-radius: 10px; display: block; margin: 0 auto; }
-
-  .photo-pick.busy { pointer-events: none; opacity: 0.55; }
 
   /* ── Split page layout: most used first and full width, the rest after. ──
      The page title gives up width before its actions do. */
