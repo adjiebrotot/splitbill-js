@@ -495,6 +495,35 @@
     try { return crypto.randomUUID(); } catch (e) { return String(Date.now()) + Math.random().toString(36).slice(2); }
   }
 
+  /* ── Avatars ──
+     A photo when the person uploaded one, else two letters on a colour:
+     "Jack Mo" JM, "Dwiki" Dw. The colour comes from a stable key (the user
+     for an app user, so they look the same in every split), one of
+     AVATAR_COLORS pastel/ink pairs in shared.css (.av-0 ... .av-7). */
+  var AVATAR_COLORS = 8;
+  function initials(name) {
+    var words = String(name || '').trim().split(/\s+/).map(function (w) {
+      return Array.from(w.replace(/[^\p{L}\p{N}]/gu, ''));
+    }).filter(function (w) { return w.length; });
+    if (!words.length) return Array.from(String(name || '').trim())[0] || '?';
+    if (words.length === 1) return words[0][0].toUpperCase() + (words[0][1] || '').toLowerCase();
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  }
+  function avatarColor(key) {
+    var h = 2166136261, k = String(key || '');
+    for (var i = 0; i < k.length; i++) { h ^= k.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return (h >>> 0) % AVATAR_COLORS;
+  }
+  /* p: { name, url, color (index) or key, size: 'sm' | 'lg' }. Decorative
+     next to the name it stands for; pass label when it stands alone. */
+  function avatarHtml(p) {
+    var cls = 'av' + (p.size ? ' av-' + p.size : '');
+    var aria = p.label ? ' role="img" aria-label="' + esc(p.label) + '" title="' + esc(p.label) + '"' : ' aria-hidden="true"';
+    if (p.url) return '<img class="' + cls + '" src="' + esc(p.url) + '" alt="' + esc(p.label || '') + '" loading="lazy" decoding="async"' + (p.label ? ' title="' + esc(p.label) + '"' : '') + '>';
+    var c = p.color != null ? p.color : avatarColor(p.key != null ? p.key : p.name);
+    return '<span class="' + cls + ' av-' + c + '"' + aria + '>' + esc(initials(p.name)) + '</span>';
+  }
+
   /* ── Dropdown placement (finance-tracker ui.js placeDropdown) ──
      A combo's list lives on document.body so no modal or card clips it.
      Call with the list already `.open` (a display:none list measures zero).
@@ -577,4 +606,8 @@
   window.todayIn = today;
   window.loadScript = loadScript;
   window.randomKey = randomKey;
+  window.initials = initials;
+  window.avatarColor = avatarColor;
+  window.avatarHtml = avatarHtml;
+  window.AVATAR_COLORS = AVATAR_COLORS;
 }());

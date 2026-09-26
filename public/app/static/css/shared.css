@@ -1139,6 +1139,39 @@
   .mchip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #1a2a4a; }
   @media (pointer: coarse) { .mchip { min-height: 40px; } }
 
+  /* ── Avatars: a photo, or two letters on a pastel with its ink ──
+     Three sizes: 24px beside a name (and in a chip), 18px inside a small line
+     (.tool-sub, preview), 64px in Settings. Colours are .av-0 ... .av-7
+     (ui.js AVATAR_COLORS); every ink clears 4.5:1 on its fill. */
+  .av {
+    flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 50%; overflow: hidden;
+    font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: 0.02em;
+    object-fit: cover; vertical-align: middle; user-select: none;
+  }
+  .av-sm { width: 18px; height: 18px; font-size: 8px; }
+  .av-lg { width: 64px; height: 64px; font-size: 22px; }
+  img.av { background: var(--bg-sunken); }
+  .av-0 { background: #8bb8f8; color: #14356b; }
+  .av-1 { background: #b8e0d2; color: #12402f; }
+  .av-2 { background: #ffd6e0; color: #4a1a2a; }
+  .av-3 { background: #c8f7c5; color: #14532d; }
+  .av-4 { background: #ffd8b0; color: #5a3000; }
+  .av-5 { background: #d9ccff; color: #33206b; }
+  .av-6 { background: #fff0a8; color: #5a4700; }
+  .av-7 { background: #a8e6ef; color: #0e4550; }
+  /* An avatar and the name it stands for, on one line. */
+  .who-av { display: inline-flex; align-items: center; gap: 6px; min-width: 0; vertical-align: middle; }
+  .card-desc.who-av, .tool-sub.who-av { display: flex; }
+  .who-pair { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .mem-cell { display: flex; align-items: center; gap: 10px; }
+  /* A person chip: the avatar sits inside the pill's left end. */
+  .mchip-av { display: inline-flex; align-items: center; gap: 6px; padding-left: 3px; }
+  .mchip-av[aria-pressed="true"] .av { box-shadow: 0 0 0 1.5px var(--surface); }
+  .top-bar .av { margin-right: 2px; }
+  .avatar-edit { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .avatar-edit .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+
   /* ── Bill editor lines (items, adjustments, percents) ── */
   .lines > * + * { margin-top: var(--gap); }
   .line {

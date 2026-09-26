@@ -5,7 +5,7 @@
  *
  * Exposes:
  *   window.toggleUserMenu(ev)
- *   window.topbarSetUser(me)   fill in the name from the boot payload
+ *   window.topbarSetUser(me)   fill in the avatar and name from the boot payload
  *   window.signOut()
  */
 (function () {
@@ -46,7 +46,7 @@
   window.topbarSetUser = function (me) {
     if (!me) return;
     var el = document.getElementById('top-username');
-    if (el) el.innerHTML = icon('user') + ' ' + esc(me.display_name || me.username || '');
+    if (el) el.innerHTML = avatarHtml({ name: me.display_name || me.username, url: me.avatar, key: 'u' + me.user_id, size: 'sm' }) + ' ' + esc(me.display_name || me.username || '');
   };
 
   window.signOut = function (ev) {

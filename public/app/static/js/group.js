@@ -83,7 +83,7 @@
     $('bal-body').innerHTML = rows.map(function (b) {
       var n = BigInt(b.net);
       var abs = (n < 0n ? -n : n).toString();
-      return '<tr><td>' + esc(nameOf(b.id)) + '</td><td class="muted">' + esc(G().currency) + '</td>' +
+      return '<tr><td>' + S.who(b.id) + '</td><td class="muted">' + esc(G().currency) + '</td>' +
         '<td class="num">' + moneyHtml(b.paid, G().currency, G().dp, { plain: true }) + '</td>' +
         '<td class="num">' + moneyHtml(b.share, G().currency, G().dp, { plain: true }) + '</td>' +
         '<td class="num ' + (n > 0n ? 'pos' : n < 0n ? 'neg' : '') + '">' + (n > 0n ? '+' : n < 0n ? '-' : '') + moneyHtml(abs, G().currency, G().dp, { plain: true }) + '</td></tr>';
@@ -106,7 +106,7 @@
             : '<button type="button" class="btn btn-secondary btn-compact" data-paid="' + esc(x.id) + '">' + icon('check') + ' ' + esc(t('xfer.mark_paid')) + '</button>';
         }
         var tag = paid ? '<span class="chip chip-settled">' + esc(t('xfer.paid')) + '</span>' : '';
-        return '<div class="transfer' + (paid ? ' paid' : '') + '"><span class="who">' + esc(nameOf(x.from)) + ' ' + icon('arrow-right') + ' ' + esc(nameOf(x.to)) + ' ' + tag + '</span>' +
+        return '<div class="transfer' + (paid ? ' paid' : '') + '"><span class="who">' + S.who(x.from) + ' ' + icon('arrow-right') + ' ' + S.who(x.to) + ' ' + tag + '</span>' +
           '<span class="amt">' + gmoneyHtml(x.amount) + '</span>' + btn + '</div>';
       }).join('');
     }
@@ -154,7 +154,7 @@
       var mineConv = foreign && sh && sh[1] != null ? '<div class="tool-sub">' + gmoneyHtml(sh[1]) + '</div>' : '';
       var err = b.error ? '<div class="tool-sub neg">' + esc(errMsg(b.error.code, b.error.params)) + '</div>' : '';
       return '<tr class="row-link" tabindex="0" data-bill="' + esc(b.id) + '"><td>' + esc(b.description) +
-        '<div class="tool-sub">' + esc(fmtDate(b.date)) + ' · ' + esc(t('bill.paid_by_x', nameOf(b.payer))) + '</div>' + err + '</td>' +
+        '<div class="tool-sub who-av">' + S.avatar(b.payer, 'sm') + '<span>' + esc(fmtDate(b.date)) + ' · ' + esc(t('bill.paid_by_x', nameOf(b.payer))) + '</span></div>' + err + '</td>' +
         '<td class="num">' + moneyHtml(b.total, b.currency, b.dp) + conv + '</td>' +
         '<td class="num">' + (mine == null ? '<span class="muted">-</span>' : moneyHtml(mine, b.currency, b.dp) + mineConv) + '</td></tr>';
     }).join('');
@@ -181,7 +181,7 @@
     $('bill-one-title').textContent = b.description;
     $('bill-one-actions').innerHTML = '<button type="button" class="btn btn-ghost btn-compact btn-icon" data-bill-open="' + esc(b.id) + '" aria-label="' +
       esc(t(canEdit ? 'bill.edit' : 'bill.view')) + '">' + icon(canEdit ? 'pencil' : 'eye') + '</button>';
-    $('bill-one-meta').textContent = fmtDate(b.date) + ' · ' + t('bill.paid_by_x', nameOf(b.payer));
+    $('bill-one-meta').innerHTML = S.avatar(b.payer, 'sm') + '<span>' + esc(fmtDate(b.date) + ' · ' + t('bill.paid_by_x', nameOf(b.payer))) + '</span>';
     $('bill-one-meta').hidden = false;
     var amt = function (x) { return moneyHtml(x, b.currency, b.dp, { plain: true }); };
     var names = function (ids) { return ids.map(nameOf).join(', '); };
@@ -197,7 +197,7 @@
       b.participants.forEach(function (p) {
         var sh = b.shares[p.member];
         var sub = b.mode === 'percent' && p.bp != null ? '<div class="tool-sub">' + esc((p.bp / 100).toFixed(2).replace(/\.?0+$/, '')) + '%</div>' : '';
-        rows.push('<tr><td>' + esc(nameOf(p.member)) + sub + '</td><td class="num">' + (sh ? amt(sh[0]) : '<span class="muted">-</span>') + '</td></tr>');
+        rows.push('<tr><td>' + S.who(p.member) + sub + '</td><td class="num">' + (sh ? amt(sh[0]) : '<span class="muted">-</span>') + '</td></tr>');
       });
     }
     var conv = b.currency !== G().currency && b.converted != null ? '<div class="tool-sub">' + gmoneyHtml(b.converted) + '</div>' : '';
@@ -215,7 +215,7 @@
       var canDel = !S.offline && isOpen() && !p.transfer_id && (S.canRecord(p.from, p.to) || p.created_by === S.me.user_id);
       var conv = p.currency !== G().currency && p.converted != null ? '<div class="tool-sub">' + gmoneyHtml(p.converted) + '</div>' : '';
       var tag = p.transfer_id ? ' · ' + esc(t('pay.from_settle')) : '';
-      return '<tr><td>' + esc(nameOf(p.from)) + ' ' + icon('arrow-right') + ' ' + esc(nameOf(p.to)) +
+      return '<tr><td><span class="who-pair">' + S.who(p.from) + ' ' + icon('arrow-right') + ' ' + S.who(p.to) + '</span>' +
         '<div class="tool-sub">' + esc(fmtDate(p.date)) + tag + (p.note ? ' · ' + esc(p.note) : '') + '</div></td>' +
         '<td class="num">' + moneyHtml(p.amount, p.currency, p.dp) + conv + '</td>' +
         '<td class="act">' + (canDel ? '<div class="tool-row-actions"><button type="button" class="btn btn-danger btn-compact btn-icon" data-delpay="' + esc(p.id) + '" aria-label="' + esc(t('common.delete')) + '">' + icon('trash') + '</button></div>' : '') + '</td></tr>';
@@ -236,7 +236,7 @@
       if (owner && !m.user_id && isTravel()) acts.push('<button type="button" class="btn btn-ghost btn-compact btn-icon" data-mlink="' + esc(m.id) + '" aria-label="' + esc(t('mem.link')) + '" title="' + esc(t('mem.link')) + '">' + icon('link') + '</button>');
       if (owner && !m.active) acts.push('<button type="button" class="btn btn-ghost btn-compact btn-icon" data-mact="' + esc(m.id) + '" aria-label="' + esc(t('mem.reactivate')) + '">' + icon('undo') + '</button>');
       if (owner && m.active && m.user_id !== G().owner) acts.push('<button type="button" class="btn btn-danger btn-compact btn-icon" data-mdel="' + esc(m.id) + '" aria-label="' + esc(t('mem.remove')) + '">' + icon('trash') + '</button>');
-      return '<tr><td' + (m.active ? '' : ' class="muted"') + '>' + esc(nameOf(m.id)) + (sub.length ? '<div class="tool-sub">' + sub.join(' · ') + '</div>' : '') + '</td>' +
+      return '<tr><td' + (m.active ? '' : ' class="muted"') + '><div class="mem-cell">' + S.avatar(m.id) + '<div>' + esc(nameOf(m.id)) + (sub.length ? '<div class="tool-sub">' + sub.join(' · ') + '</div>' : '') + '</div></div></td>' +
         '<td class="act"><div class="tool-row-actions">' + acts.join('') + '</div></td></tr>';
     }).join('');
     $('btn-invite').hidden = !(isTravel() && G().invite_code && !S.offline);

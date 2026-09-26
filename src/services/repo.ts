@@ -29,6 +29,8 @@ export interface MemberRow {
   name: string;
   user_id: string | null;
   username: string | null;
+  /** The linked user's photo; null (or absent) draws initials. */
+  avatar?: string | null;
   position: number;
   active: boolean;
 }
@@ -126,7 +128,7 @@ const STATE_JSON = `json_build_object(
   'members', COALESCE((
     SELECT json_agg(json_build_object(
       'id', m.member_id::text, 'name', m.display_name, 'user_id', m.user_id::text,
-      'username', u.username, 'position', m.position, 'active', m.active) ORDER BY m.position)
+      'username', u.username, 'avatar', u.avatar_url, 'position', m.position, 'active', m.active) ORDER BY m.position)
     FROM members m LEFT JOIN users u ON u.user_id = m.user_id
     WHERE m.group_id = g.group_id), '[]'::json),
   'bills', COALESCE((
@@ -178,12 +180,12 @@ const STATE_JSON = `json_build_object(
  * What a cached state is valid for. Every write bumps `revision` in the same
  * transaction (write() in actions.ts, joinByInvite, admin handover, migration
  * 003), so an unchanged revision means unchanged books. The one thing a group
- * shows that lives outside it is each linked member's username (users table),
- * so those are part of the key too: a renamed or deleted account is never
- * served stale.
+ * shows that lives outside it is each linked member's username and photo
+ * (users table), so those are part of the key too: a renamed or deleted
+ * account, or a new photo, is never served stale.
  */
 const USERS_KEY_SQL = `COALESCE((
-    SELECT string_agg(':' || m.member_id || '=' || u.username, '' ORDER BY m.member_id)
+    SELECT string_agg(':' || m.member_id || '=' || u.username || COALESCE(' ' || u.avatar_url, ''), '' ORDER BY m.member_id)
     FROM members m JOIN users u ON u.user_id = m.user_id WHERE m.group_id = g.group_id), '')`;
 const KEY_SQL = `g.revision::text || ${USERS_KEY_SQL}`;
 

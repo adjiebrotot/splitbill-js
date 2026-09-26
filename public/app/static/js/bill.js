@@ -164,12 +164,22 @@
     return '<button type="button" class="mchip mchip-add" data-plus="' + esc(where) + '" aria-label="' + esc(t('mem.add_person')) + '" title="' + esc(t('mem.add_person')) + '">+</button>';
   }
 
+  /* A person chip: avatar and first name; the full name on hover and for
+     screen readers when the chip shortens it. */
+  function chipFace(m) {
+    return S.avatar(m.id) + '<span>' + esc(S.shortName(m.id)) + '</span>';
+  }
+  function chipName(m) {
+    var full = S.nameOf(m.id);
+    return full === S.shortName(m.id) ? '' : ' title="' + esc(full) + '" aria-label="' + esc(full) + '"';
+  }
+
   function chipsHtml(selected, cls, where) {
     var list = pickable();
     var all = list.length && list.every(function (m) { return selected.indexOf(m.id) >= 0; });
     return '<button type="button" class="mchip ' + cls + '" data-all="1" aria-pressed="' + all + '"' + dis() + '>' + esc(t('common.all')) + '</button>' +
       list.map(function (m) {
-        return '<button type="button" class="mchip ' + cls + '" data-m="' + esc(m.id) + '" aria-pressed="' + (selected.indexOf(m.id) >= 0) + '"' + dis() + '>' + esc(m.name) + '</button>';
+        return '<button type="button" class="mchip mchip-av ' + cls + '" data-m="' + esc(m.id) + '" aria-pressed="' + (selected.indexOf(m.id) >= 0) + '"' + chipName(m) + dis() + '>' + chipFace(m) + '</button>';
       }).join('') + plusChip(where);
   }
 
@@ -182,7 +192,7 @@
   function renderPayer() {
     $('payer-chips').innerHTML = pickable().map(function (m) {
       var on = m.id === B.payer;
-      return '<button type="button" class="mchip pay-chip" role="radio" aria-checked="' + on + '" aria-pressed="' + on + '" data-m="' + esc(m.id) + '"' + dis() + '>' + esc(S.nameOf(m.id)) + '</button>';
+      return '<button type="button" class="mchip mchip-av pay-chip" role="radio" aria-checked="' + on + '" aria-pressed="' + on + '" data-m="' + esc(m.id) + '"' + chipName(m) + dis() + '>' + chipFace(m) + '</button>';
     }).join('') + plusChip('payer');
   }
 
@@ -218,7 +228,7 @@
     $('pcts').hidden = B.mode !== 'percent';
     if (B.mode === 'percent') {
       $('pcts').innerHTML = pickable().map(function (m) {
-        return '<div class="pct-row"><span class="who">' + esc(m.name) + '</span>' +
+        return '<div class="pct-row"><span class="who">' + S.who(m.id) + '</span>' +
           '<input type="text" autocomplete="off" class="pct" inputmode="decimal" data-m="' + esc(m.id) + '" value="' + esc(B.pcts[m.id] || '') + '" placeholder="0" aria-label="%"' + dis() + '>' +
           '<span class="muted">%</span></div>';
       }).join('') +
@@ -413,7 +423,7 @@
     rows.sort(function (a, b) { return S.member(a[0]).position - S.member(b[0]).position; });
     pv.innerHTML = '<div class="report-sub">' + esc(t('bill.shares')) + '</div>' + rows.map(function (r) {
       var cm = conv ? conv.get(r[0]) : null;
-      return '<div class="preview-row"><span>' + esc(S.nameOf(r[0])) + (r[0] === built.bill.payer ? ' <span class="chip">' + esc(t('bill.paid_chip')) + '</span>' : '') + '</span>' +
+      return '<div class="preview-row"><span class="who-av">' + S.avatar(r[0], 'sm') + '<span>' + esc(S.nameOf(r[0])) + '</span>' + (r[0] === built.bill.payer ? ' <span class="chip">' + esc(t('bill.paid_chip')) + '</span>' : '') + '</span>' +
         '<span class="mono">' + moneyHtml(r[1].toString(), c, d) + (cm != null ? ' · ' + moneyHtml(cm.toString(), G().currency, G().dp) : '') + '</span></div>';
     }).join('') + (note ? '<div class="preview-note">' + esc(note) + '</div>' : '');
 

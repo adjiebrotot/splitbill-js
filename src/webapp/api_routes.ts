@@ -92,6 +92,15 @@ const ROUTES: Record<string, Handler> = {
       langCookie(normalizeLang(r.data.language)),
     ]);
   },
+  "POST settings/avatar": async (req, ctx) => {
+    const uid = need(ctx).user_id;
+    const form = await req.formData().catch(() => null);
+    const file = form?.get("file");
+    if (!form || !file || typeof file === "string") return json({ ok: false, code: "image_invalid", params: {} }, 400);
+    const bytes = new Uint8Array(await (file as Blob).arrayBuffer());
+    return answer(await A.run(() => U.setAvatar(uid, bytes, (file as Blob).type || "image/jpeg")));
+  },
+  "POST settings/avatar/remove": async (_req, ctx) => answer(await A.run(() => U.removeAvatar(need(ctx).user_id))),
   "POST settings/password": async (_req, ctx) => answer(await A.run(() => U.changePassword(need(ctx).user_id, ctx.body.current, ctx.body.next))),
 
   // ── groups ──
