@@ -32,6 +32,23 @@ export function compute(s: GroupState): GroupOut {
   return computeGroup(toEngine(s));
 }
 
+const _outs = new WeakMap<GroupState, GroupOut>();
+
+/**
+ * compute(), once per state object. For states nobody mutates: the shared
+ * ones from repo.ts readGroups (cached across requests) and the one write()
+ * verified and cached. The engine is pure, so the numbers are the same; the
+ * result is shared too, so treat it as read-only.
+ */
+export function computeShared(s: GroupState): GroupOut {
+  let out = _outs.get(s);
+  if (!out) {
+    out = compute(s);
+    _outs.set(s, out);
+  }
+  return out;
+}
+
 export type Stage = "open" | "final" | "settled";
 
 /**

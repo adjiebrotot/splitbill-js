@@ -3,10 +3,10 @@
  *
  * A group's state is built by Postgres as one JSON document per group
  * (subqueries + json_agg), so a group page costs a single statement on Neon's
- * HTTP path instead of nine. Every id and money value is cast to TEXT inside
- * the JSON, so nothing passes through a JS float.
+ * HTTP path instead of nine. Reads outside a write go through a per-instance
+ * cache keyed by revision (readGroups), checked in that same statement.
  */
-import { fetchall, fetchone } from "../db";
+import { fetchall, fetchone, inTransaction } from "../db";
 
 export interface GroupRow {
   group_id: string;
@@ -113,8 +113,11 @@ export interface GroupState {
   rates: RateRow[];
 }
 
-const STATE_SQL = `
-SELECT g.group_id, json_build_object(
+/**
+ * One group's whole state as JSON. `g` is a groups row. Every id and money
+ * value is cast to TEXT, so nothing passes through a JS float.
+ */
+const STATE_JSON = `json_build_object(
   'group', json_build_object(
     'group_id', g.group_id, 'kind', g.kind, 'name', g.name, 'owner', g.owner_user_id::text,
     'currency', g.currency, 'dp', g.minor_units, 'timezone', g.timezone, 'status', g.status,
@@ -169,23 +172,135 @@ SELECT g.group_id, json_build_object(
       'rate', trim_scale(r.rate)::text, 'inverted', r.inverted, 'source', r.source, 'set_at', r.set_at
     ) ORDER BY r.currency, r.effective_date)
     FROM fx_rates r WHERE r.group_id = g.group_id), '[]'::json)
-) AS state
-FROM groups g
-WHERE g.group_id = ANY($1::text[]) AND g.deleted_at IS NULL`;
+)`;
+
+/**
+ * What a cached state is valid for. Every write bumps `revision` in the same
+ * transaction (write() in actions.ts, joinByInvite, admin handover, migration
+ * 003), so an unchanged revision means unchanged books. The one thing a group
+ * shows that lives outside it is each linked member's username (users table),
+ * so those are part of the key too: a renamed or deleted account is never
+ * served stale.
+ */
+const KEY_SQL = `g.revision::text || COALESCE((
+    SELECT string_agg(':' || m.member_id || '=' || u.username, '' ORDER BY m.member_id)
+    FROM members m JOIN users u ON u.user_id = m.user_id WHERE m.group_id = g.group_id), '')`;
+
+/**
+ * `from` yields the groups rows; $2/$3 are the (id, key) pairs the caller
+ * already holds. A row whose key still matches comes back with a NULL state:
+ * Postgres skips building its JSON (CASE never evaluates the other branch),
+ * so a warm read is one small row per group instead of the whole document.
+ */
+function stateSql(from: string, order = ""): string {
+  return `SELECT g.group_id, k.key, CASE WHEN k.key = kn.key THEN NULL ELSE ${STATE_JSON} END AS state
+FROM ${from} g
+CROSS JOIN LATERAL (SELECT ${KEY_SQL} AS key) k
+LEFT JOIN unnest($2::text[], $3::text[]) AS kn(id, key) ON kn.id = g.group_id${order}`;
+}
+
+const BY_IDS_SQL = stateSql("(SELECT * FROM groups WHERE group_id = ANY($1::text[]) AND deleted_at IS NULL)");
+
+/** A user's groups, newest first (the home list), in the same one statement. */
+const BY_USER_SQL = stateSql(
+  `(SELECT * FROM groups gg WHERE gg.deleted_at IS NULL
+      AND EXISTS (SELECT 1 FROM members m WHERE m.group_id = gg.group_id AND m.user_id = $1)
+    ORDER BY gg.created_at DESC LIMIT 200)`,
+  "\nORDER BY g.created_at DESC",
+);
 
 function _parse(v: unknown): GroupState {
   return (typeof v === "string" ? JSON.parse(v) : v) as GroupState;
 }
 
+// ── per-instance cache ─────────────────────────────────────────────────────
+//
+// A warm serverless instance serves many requests. Keeping the last state of
+// each group it saw, keyed as above, turns a repeat read into a key check.
+// Never stale: every read still asks Postgres for the current key, and a
+// mismatch returns the full state in the same round trip. Only committed
+// data enters: reads inside a transaction bypass the cache, and write()
+// stores its verified state only after COMMIT (rememberGroup).
+//
+// Cached states are shared between requests: callers must treat them (and
+// compute()'s memoized output) as read-only.
+
+const CACHE_MAX = 500;
+const USERS_MAX = 2000;
+interface Entry { key: string; s: GroupState }
+const _cache = new Map<string, Entry>();
+const _userGroups = new Map<string, string[]>();
+
+function _lru<K, V>(m: Map<K, V>, k: K, v: V, max: number): void {
+  m.delete(k);
+  m.set(k, v);
+  if (m.size > max) m.delete(m.keys().next().value as K);
+}
+
+export function rememberGroup(id: string, key: string, s: GroupState): void {
+  _lru(_cache, id, { key, s }, CACHE_MAX);
+}
+
+/** Tests: start from a cold instance. */
+export function _resetGroupCache(): void {
+  _cache.clear();
+  _userGroups.clear();
+}
+
+async function _read(sql: string, first: unknown, ids: string[], cached: boolean): Promise<Map<string, GroupState>> {
+  const held = new Map<string, Entry>();
+  if (cached) for (const id of ids) { const e = _cache.get(id); if (e) held.set(id, e); }
+  const rows = await fetchall(sql, [first, [...held.keys()], [...held.values()].map((e) => e.key)]);
+  const out = new Map<string, GroupState>();
+  for (const r of rows) {
+    const id = String(r[0]);
+    const key = String(r[1]);
+    const s = r[2] === null || r[2] === undefined ? held.get(id)!.s : _parse(r[2]);
+    if (cached) rememberGroup(id, key, s);
+    out.set(id, s);
+  }
+  return out;
+}
+
+/** Exact states, no cache (inside a transaction, or when a key is needed). */
+export async function loadGroupsKeyed(ids: string[]): Promise<Map<string, Entry>> {
+  const out = new Map<string, Entry>();
+  if (!ids.length) return out;
+  for (const r of await fetchall(BY_IDS_SQL, [ids, [], []])) out.set(String(r[0]), { key: String(r[1]), s: _parse(r[2]) });
+  return out;
+}
+
 export async function loadGroups(ids: string[]): Promise<Map<string, GroupState>> {
   const out = new Map<string, GroupState>();
-  if (!ids.length) return out;
-  for (const r of await fetchall(STATE_SQL, [ids])) out.set(String(r[0]), _parse(r[1]));
+  for (const [id, e] of await loadGroupsKeyed(ids)) out.set(id, e.s);
   return out;
 }
 
 export async function loadGroup(id: string): Promise<GroupState | null> {
   return (await loadGroups([id])).get(id) ?? null;
+}
+
+/**
+ * Committed states for reads outside a write. One round trip, like
+ * loadGroups, but a group this instance already holds at its current key
+ * costs a key instead of its whole document.
+ */
+export async function readGroups(ids: string[]): Promise<Map<string, GroupState>> {
+  if (!ids.length) return new Map();
+  if (inTransaction()) return loadGroups(ids);
+  return _read(BY_IDS_SQL, ids, ids, true);
+}
+
+export async function readGroup(id: string): Promise<GroupState | null> {
+  return (await readGroups([id])).get(id) ?? null;
+}
+
+/** Every live group `userId` is a member of, newest first, at most 200. */
+export async function readUserGroups(userId: string): Promise<GroupState[]> {
+  const cached = !inTransaction();
+  const m = await _read(BY_USER_SQL, userId, cached ? _userGroups.get(userId) ?? [] : [], cached);
+  if (cached) _lru(_userGroups, userId, [...m.keys()], USERS_MAX);
+  return [...m.values()];
 }
 
 /**
@@ -195,6 +310,20 @@ export async function loadGroup(id: string): Promise<GroupState | null> {
 export async function lockGroup(id: string): Promise<{ status: string; revision: string; owner: string; kind: string } | null> {
   const r = await fetchone(
     "SELECT status, revision::text, owner_user_id::text, kind FROM groups WHERE group_id = $1 AND deleted_at IS NULL FOR UPDATE",
+    [id],
+  );
+  return r ? { status: String(r[0]), revision: String(r[1]), owner: String(r[2]), kind: String(r[3]) } : null;
+}
+
+/**
+ * lockGroup and the revision bump in one statement: an UPDATE takes the same
+ * row lock as FOR UPDATE. `revision` is the value before the bump. A throw
+ * later in the transaction rolls the bump back with everything else.
+ */
+export async function lockAndBump(id: string): Promise<{ status: string; revision: string; owner: string; kind: string } | null> {
+  const r = await fetchone(
+    `UPDATE groups SET revision = revision + 1 WHERE group_id = $1 AND deleted_at IS NULL
+     RETURNING status, (revision - 1)::text, owner_user_id::text, kind`,
     [id],
   );
   return r ? { status: String(r[0]), revision: String(r[1]), owner: String(r[2]), kind: String(r[3]) } : null;

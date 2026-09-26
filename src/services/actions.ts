@@ -14,16 +14,19 @@
  *
  * Postgres re-checks each bill again at COMMIT (deferred triggers).
  */
-import { atomic, execute, fetchall, fetchone } from "../db";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { atomic, execute, fetchall, fetchone, inTransaction } from "../db";
 import { ActionError, err, fail, ok, type Result } from "../errors";
 import {
   ADJ_KINDS, allocate, bigSideRate, EngineError, ENGINE_VERSION, findRate, isCurrency, minorUnits, normCurrency, parseMinor, parseRate,
-  type AdjKind, type BillIn,
+  type AdjKind, type BillIn, type GroupOut,
 } from "../engine";
 import { newGroupId, newInviteCode } from "../ids";
 import { addDays, cleanText, isDate, localDate, safeTimezone, DEFAULT_TZ } from "../utils";
-import { compute, stageFor, viewOf, type GroupView } from "./ledger";
-import { loadGroup, loadGroups, lockGroup, type GroupState, type MemberRow } from "./repo";
+import { compute, computeShared, stageFor, viewOf, type GroupView } from "./ledger";
+import {
+  loadGroup, loadGroupsKeyed, lockAndBump, lockGroup, readGroup, readUserGroups, rememberGroup, type GroupState, type MemberRow,
+} from "./repo";
 import { findUserByUsername, getMe } from "./user_service";
 import { AiUnavailable } from "./llm_client";
 
@@ -62,12 +65,29 @@ interface Ctx {
   me: MemberRow | null;
   isOwner: boolean;
   log: (action: string, entity: string, entityId: string | null, data?: unknown) => Promise<void>;
+  /** Refuse (roll back) with `code` unless every bill and payment converts after the write. */
+  requireCoverage: (code: string) => void;
+}
+
+function _eventData(data: unknown): string | null {
+  return data === undefined ? null : JSON.stringify(data, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 }
 
 async function _event(groupId: string, userId: string | null, action: string, entity: string, entityId: string | null, data?: unknown) {
   await execute(
     "INSERT INTO group_events (group_id, user_id, action, entity, entity_id, data) VALUES ($1, $2, $3, $4, $5, $6)",
-    [groupId, userId, action, entity, entityId, data === undefined ? null : JSON.stringify(data, (_k, v) => (typeof v === "bigint" ? v.toString() : v))],
+    [groupId, userId, action, entity, entityId, _eventData(data)],
+  );
+}
+
+/** A write's log lines, in order, as one INSERT. */
+async function _events(groupId: string, userId: string | null, ev: [string, string, string | null, string | null][]): Promise<void> {
+  if (!ev.length) return;
+  await execute(
+    `INSERT INTO group_events (group_id, user_id, action, entity, entity_id, data)
+     SELECT $1::text, $2::bigint, x.a, x.e, x.i, x.d::jsonb
+       FROM unnest($3::text[], $4::text[], $5::text[], $6::text[]) WITH ORDINALITY AS x(a, e, i, d, n) ORDER BY x.n`,
+    [groupId, userId, ev.map((e) => e[0]), ev.map((e) => e[1]), ev.map((e) => e[2]), ev.map((e) => e[3])],
   );
 }
 
@@ -75,35 +95,75 @@ function _meOf(s: GroupState, userId: string): MemberRow | null {
   return s.members.find((m) => m.user_id === userId) ?? null;
 }
 
-/** Lock, load, check membership, run `fn`, bump revision, re-verify books. */
+/** The state the last write() in a withView() block verified and committed. */
+const _written = new AsyncLocalStorage<{ s?: GroupState; out?: GroupOut }>();
+
+/**
+ * Run a group write and hand back the view the post-write gate already
+ * computed, so a page shows the result without loading the group again.
+ * `view` is null when nothing was verified (e.g. the group was deleted).
+ */
+export async function withView<T>(userId: string, fn: () => Promise<T>): Promise<{ data: T; view: GroupView | null }> {
+  const box: { s?: GroupState; out?: GroupOut } = {};
+  const data = await _written.run(box, fn);
+  return { data, view: box.s && box.out ? viewOf(box.s, box.out, userId) : null };
+}
+
+/**
+ * Lock + bump revision, load, check membership, run `fn`, log, re-verify
+ * books. The bump comes first (it is the lock); a refusal anywhere rolls it
+ * back. Log lines are buffered and written as one INSERT.
+ */
 async function write<T>(userId: string, groupId: unknown, fn: (c: Ctx) => Promise<T>, opts: { expectedRevision?: unknown } = {}): Promise<T> {
   const gid = String(groupId ?? "");
-  return atomic(async () => {
-    const lock = await lockGroup(gid);
+  let verified: Verified | null = null;
+  const result = await atomic(async () => {
+    const lock = await lockAndBump(gid);
     if (!lock) fail("group_not_found", {}, 404);
     if (opts.expectedRevision !== undefined && String(opts.expectedRevision) !== lock.revision) fail("stale_revision", {}, 409);
     const s = (await loadGroup(gid))!;
     const me = _meOf(s, userId);
     if (!me) fail("group_not_found", {}, 404);
+    const events: [string, string, string | null, string | null][] = [];
+    let coverage: string | null = null;
     const ctx: Ctx = {
       userId, s, me, isOwner: s.group.owner === userId,
-      log: (action, entity, entityId, data) => _event(gid, userId, action, entity, entityId, data),
+      log: async (action, entity, entityId, data) => { events.push([action, entity, entityId, _eventData(data)]); },
+      requireCoverage: (code) => { coverage = code; },
     };
-    const result = await fn(ctx);
-    await execute("UPDATE groups SET revision = revision + 1 WHERE group_id = $1", [gid]);
-    await _verify(gid);
-    return result;
+    const r = await fn(ctx);
+    await _events(gid, userId, events);
+    verified = await _verify(gid, coverage);
+    return r;
   });
+  // Committed (unless joined into a caller's transaction, which may still roll
+  // back): this instance's next read of the group is a key check.
+  const v = verified as Verified | null;
+  if (v && !inTransaction()) {
+    rememberGroup(gid, v.key, v.s);
+    const box = _written.getStore();
+    if (box) { box.s = v.s; box.out = v.out; }
+  }
+  return result;
 }
+
+interface Verified { key: string; s: GroupState; out: GroupOut }
 
 /**
  * The post-write gate. Every bill and payment must convert, balances must sum
  * to zero, and a settled group's balances must equal its unpaid transfers.
+ * `coverage` (a rate edit) refuses with that code when a bill or payment lost
+ * its rate. Returns what it checked, for the cache and the caller's view.
  */
-async function _verify(gid: string): Promise<void> {
-  const s = await loadGroup(gid);
-  if (!s) return;
-  const out = compute(s);
+async function _verify(gid: string, coverage: string | null = null): Promise<Verified | null> {
+  const e = (await loadGroupsKeyed([gid])).get(gid);
+  if (!e) return null;
+  const s = e.s;
+  const out = computeShared(s); // this state is cached after COMMIT: its numbers go with it
+  if (coverage && !out.complete) {
+    const m = out.missing[0];
+    fail(coverage, m ? { currency: m.currency, date: m.date } : {});
+  }
   for (const b of out.bills) if (b.error) throw b.error;
   for (const p of out.payments) if (p.error) throw p.error;
   if (s.group.status === "settled") {
@@ -117,6 +177,7 @@ async function _verify(gid: string): Promise<void> {
       if (b.net !== (pending.get(b.id) ?? 0n)) fail("internal_settled_mismatch", {}, 500);
     }
   }
+  return { key: e.key, s, out };
 }
 
 function _requireOwner(c: Ctx): void {
@@ -140,24 +201,17 @@ function _today(c: Ctx): string {
 // ── reads ───────────────────────────────────────────────────────────────────
 
 export async function getGroupView(p: { user_id: string; group_id: unknown }): Promise<GroupView> {
-  const s = await loadGroup(String(p.group_id ?? ""));
+  const s = await readGroup(String(p.group_id ?? ""));
   if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
-  return viewOf(s, compute(s), p.user_id);
+  return viewOf(s, computeShared(s), p.user_id);
 }
 
 export async function listMyGroups(p: { user_id: string }) {
-  const rows = await fetchall(
-    `SELECT g.group_id FROM groups g JOIN members m ON m.group_id = g.group_id
-      WHERE m.user_id = $1 AND g.deleted_at IS NULL ORDER BY g.created_at DESC LIMIT 200`,
-    [p.user_id],
-  );
-  const states = await loadGroups(rows.map((r) => String(r[0])));
   const out = [];
-  for (const r of rows) {
-    const s = states.get(String(r[0]));
-    if (!s) continue;
-    const c = compute(s);
+  for (const s of await readUserGroups(p.user_id)) {
+    const c = computeShared(s);
     const me = _meOf(s, p.user_id)!;
+    const bal = c.balances.find((b) => b.id === me.id);
     out.push({
       group_id: s.group.group_id,
       kind: s.group.kind,
@@ -171,8 +225,8 @@ export async function listMyGroups(p: { user_id: string }) {
       bills: s.bills.length,
       spent: c.spent,
       // The viewer's own spending: their share of every bill, not what they paid.
-      my_share: c.balances.find((b) => b.id === me.id)?.share ?? 0n,
-      my_net: c.balances.find((b) => b.id === me.id)?.net ?? 0n,
+      my_share: bal?.share ?? 0n,
+      my_net: bal?.net ?? 0n,
       // Payments still owed (a finalised trip's balances equal its unpaid transfers).
       owed: c.transfers.length,
       stage: stageFor(s, c),
@@ -215,8 +269,8 @@ export async function createGroup(p: { user_id: string } & Params) {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [gid, kind, name, p.user_id, currency, minorUnits(currency), tz, kind === "travel" ? newInviteCode() : null],
     );
-    await execute("INSERT INTO members (group_id, display_name, user_id, position) VALUES ($1, $2, $3, 1)", [gid, me.display_name, p.user_id]);
-    let pos = 1;
+    const names: string[] = [me.display_name];
+    const users: (string | null)[] = [p.user_id];
     const taken = new Set([me.display_name.toLowerCase()]);
     for (const raw of people) {
       const entry = (typeof raw === "object" && raw ? raw : { name: raw }) as Params;
@@ -232,9 +286,15 @@ export async function createGroup(p: { user_id: string } & Params) {
       if (!display) continue;
       if (taken.has(display.toLowerCase())) fail("member_name_taken", { name: display });
       taken.add(display.toLowerCase());
-      pos += 1;
-      await execute("INSERT INTO members (group_id, display_name, user_id, position) VALUES ($1, $2, $3, $4)", [gid, display, userId, pos]);
+      names.push(display);
+      users.push(userId);
     }
+    // Everyone in one INSERT, positions 1..n in list order (the owner first).
+    await execute(
+      `INSERT INTO members (group_id, display_name, user_id, position)
+       SELECT $1, x.name, x.uid, x.pos FROM unnest($2::text[], $3::bigint[]) WITH ORDINALITY AS x(name, uid, pos) ORDER BY x.pos`,
+      [gid, names, users],
+    );
     await _event(gid, p.user_id, "create", "group", gid, { kind, name, currency });
     return { group_id: gid };
   });
@@ -275,12 +335,12 @@ export async function resetInvite(p: { user_id: string } & Params) {
 /** Look up an invite before joining (shows the group name). */
 export async function peekInvite(p: { user_id: string; code: unknown }) {
   const r = await fetchone(
-    "SELECT group_id, name, status FROM groups WHERE invite_code = $1 AND deleted_at IS NULL AND kind = 'travel'",
-    [String(p.code ?? "")],
+    `SELECT g.group_id, g.name, g.status, EXISTS (SELECT 1 FROM members m WHERE m.group_id = g.group_id AND m.user_id = $2)
+       FROM groups g WHERE g.invite_code = $1 AND g.deleted_at IS NULL AND g.kind = 'travel'`,
+    [String(p.code ?? ""), p.user_id],
   );
   if (!r) fail("invite_invalid", {}, 404);
-  const member = await fetchone("SELECT 1 FROM members WHERE group_id = $1 AND user_id = $2", [r[0], p.user_id]);
-  return { group_id: String(r[0]), name: String(r[1]), status: String(r[2]), already: !!member };
+  return { group_id: String(r[0]), name: String(r[1]), status: String(r[2]), already: r[3] === true || r[3] === "t" };
 }
 
 export async function joinByInvite(p: { user_id: string; code: unknown }) {
@@ -494,28 +554,41 @@ function _billMembers(b: CleanBill): Set<string> {
   return s;
 }
 
+/**
+ * A bill's lines in at most three statements (items with their members,
+ * adjustments, participants) instead of one per row: inside the group lock,
+ * every round trip is time other writers wait.
+ */
 async function _writeLines(gid: string, billId: string, b: CleanBill): Promise<void> {
-  let pos = 0;
-  for (const it of b.items) {
-    pos += 1;
-    const r = await fetchone(
-      "INSERT INTO bill_items (group_id, bill_id, position, name, qty, amount_minor) VALUES ($1, $2, $3, $4, $5, $6) RETURNING item_id::text",
-      [gid, billId, pos, it.name, it.qty, it.amount.toString()],
-    );
-    for (const m of it.members) {
-      await execute("INSERT INTO bill_item_members (group_id, item_id, member_id) VALUES ($1, $2, $3)", [gid, r![0], m]);
-    }
-  }
-  pos = 0;
-  for (const a of b.adjustments) {
-    pos += 1;
+  if (b.items.length) {
+    const memberPos: number[] = [];
+    const memberIds: string[] = [];
+    b.items.forEach((it, i) => { for (const m of it.members) { memberPos.push(i + 1); memberIds.push(m); } });
     await execute(
-      "INSERT INTO bill_adjustments (group_id, bill_id, position, kind, amount_minor) VALUES ($1, $2, $3, $4, $5)",
-      [gid, billId, pos, a.kind, a.amount.toString()],
+      `WITH items AS (
+         INSERT INTO bill_items (group_id, bill_id, position, name, qty, amount_minor)
+         SELECT $1, $2, x.pos, x.name, x.qty::numeric, x.amount::bigint
+           FROM unnest($3::text[], $4::text[], $5::text[]) WITH ORDINALITY AS x(name, qty, amount, pos) ORDER BY x.pos
+         RETURNING item_id, position)
+       INSERT INTO bill_item_members (group_id, item_id, member_id)
+       SELECT $1, items.item_id, m.member_id
+         FROM unnest($6::int[], $7::bigint[]) AS m(pos, member_id) JOIN items ON items.position = m.pos`,
+      [gid, billId, b.items.map((i) => i.name), b.items.map((i) => i.qty), b.items.map((i) => i.amount.toString()), memberPos, memberIds],
     );
   }
-  for (const x of b.participants) {
-    await execute("INSERT INTO bill_participants (group_id, bill_id, member_id, bp) VALUES ($1, $2, $3, $4)", [gid, billId, x.member, x.bp]);
+  if (b.adjustments.length) {
+    await execute(
+      `INSERT INTO bill_adjustments (group_id, bill_id, position, kind, amount_minor)
+       SELECT $1, $2, x.pos, x.kind, x.amount::bigint FROM unnest($3::text[], $4::text[]) WITH ORDINALITY AS x(kind, amount, pos) ORDER BY x.pos`,
+      [gid, billId, b.adjustments.map((a) => a.kind), b.adjustments.map((a) => a.amount.toString())],
+    );
+  }
+  if (b.participants.length) {
+    await execute(
+      `INSERT INTO bill_participants (group_id, bill_id, member_id, bp)
+       SELECT $1, $2, x.member_id, x.bp FROM unnest($3::bigint[], $4::int[]) AS x(member_id, bp)`,
+      [gid, billId, b.participants.map((x) => x.member), b.participants.map((x) => x.bp)],
+    );
   }
 }
 
@@ -576,9 +649,11 @@ export async function saveBill(p: { user_id: string } & Params) {
          WHERE bill_id = $10`,
         [bill.description, bill.date, bill.currency, bill.dp, bill.mode, bill.total.toString(), bill.stated?.toString() ?? null, bill.payer, c.userId, billId],
       );
-      await execute("DELETE FROM bill_items WHERE bill_id = $1", [billId]);
-      await execute("DELETE FROM bill_adjustments WHERE bill_id = $1", [billId]);
-      await execute("DELETE FROM bill_participants WHERE bill_id = $1", [billId]);
+      await execute(
+        `WITH a AS (DELETE FROM bill_adjustments WHERE bill_id = $1), p AS (DELETE FROM bill_participants WHERE bill_id = $1)
+         DELETE FROM bill_items WHERE bill_id = $1`,
+        [billId],
+      );
     } else {
       const r = await fetchone(
         `INSERT INTO bills (group_id, description, bill_date, currency, minor_units, mode, total_minor, stated_total,
@@ -678,10 +753,11 @@ export async function settleGroup(p: { user_id: string } & Params) {
     if (!out.complete) fail("settle_incomplete");
     const gid = c.s.group.group_id;
     const round = c.s.group.round + 1;
-    for (const t of out.transfers) {
+    if (out.transfers.length) {
       await execute(
-        "INSERT INTO settlement_transfers (group_id, round, from_member, to_member, amount_minor) VALUES ($1, $2, $3, $4, $5)",
-        [gid, round, t.from, t.to, t.amount.toString()],
+        `INSERT INTO settlement_transfers (group_id, round, from_member, to_member, amount_minor)
+         SELECT $1, $2, x.f, x.t, x.a::bigint FROM unnest($3::bigint[], $4::bigint[], $5::text[]) WITH ORDINALITY AS x(f, t, a, n) ORDER BY x.n`,
+        [gid, round, out.transfers.map((t) => t.from), out.transfers.map((t) => t.to), out.transfers.map((t) => t.amount.toString())],
       );
     }
     const snapshot = {
@@ -867,7 +943,7 @@ export async function setRate(p: { user_id: string } & Params) {
       [gid, currency, effective, rate.text, inverted, source, c.userId],
     );
     await c.log("set", "rate", `${currency}|${effective}`, { rate: rate.text, inverted, source, replaced: rep ?? null });
-    await _coverageOr("rate_needed", gid);
+    c.requireCoverage("rate_needed");
     return { currency, effective, rate: rate.text, inverted };
   });
 }
@@ -882,20 +958,9 @@ export async function deleteRate(p: { user_id: string } & Params) {
       [c.s.group.group_id, currency, effective]);
     if (n < 1) fail("rate_not_found", {}, 404);
     await c.log("delete", "rate", `${currency}|${effective}`);
-    await _coverageOr("rate_needed", c.s.group.group_id);
+    c.requireCoverage("rate_needed");
     return { deleted: true };
   });
-}
-
-/** Refuse (roll back) with `code` when any bill or payment lost its rate. */
-async function _coverageOr(code: string, gid: string): Promise<void> {
-  const s = await loadGroup(gid);
-  if (!s) return;
-  const out = compute(s);
-  if (!out.complete) {
-    const m = out.missing[0];
-    fail(code, m ? { currency: m.currency, date: m.date } : {});
-  }
 }
 
 /**
@@ -903,7 +968,7 @@ async function _coverageOr(code: string, gid: string): Promise<void> {
  * settlement currency (Change Currency asks for the new one).
  */
 export async function suggestRate(p: { user_id: string } & Params) {
-  const s = await loadGroup(String(p.group_id ?? ""));
+  const s = await readGroup(String(p.group_id ?? ""));
   if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
   const currency = normCurrency(p.currency);
   const to = p.to ? normCurrency(p.to) : s.group.currency;
@@ -928,7 +993,7 @@ interface AutoRate { currency: string; effective: string; rate: string; inverted
  * then refuses as it always did (rate_needed / rate_missing).
  */
 async function _autoRatesFor(groupId: unknown, wants: { currency: unknown; date: unknown }[]): Promise<AutoRate[]> {
-  const s = await loadGroup(String(groupId ?? ""));
+  const s = await readGroup(String(groupId ?? ""));
   if (!s || s.group.kind !== "travel" || s.group.status !== "open") return [];
   const today = localDate(s.group.timezone);
   const { fetchFxratesBest, bigSideFirst } = await import("../fx_providers");
@@ -963,9 +1028,9 @@ async function _addAutoRates(c: Ctx, rates: AutoRate[]): Promise<void> {
  * gap) with a market rate. Any member may: it only fills gaps, never replaces.
  */
 export async function fillRates(p: { user_id: string } & Params) {
-  const s = await loadGroup(String(p.group_id ?? ""));
+  const s = await readGroup(String(p.group_id ?? ""));
   if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
-  const missing = compute(s).missing;
+  const missing = computeShared(s).missing;
   if (!missing.length) return { added: 0 };
   const auto = await _autoRatesFor(p.group_id, missing);
   if (!auto.length) fail("rate_unavailable", {}, 502);
@@ -1004,7 +1069,7 @@ export async function changeCurrency(p: { user_id: string } & Params) {
       );
     }
     await c.log("currency", "group", gid, { from: c.s.group.currency, to: currency, rates: rows });
-    await _coverageOr("rate_missing", gid);
+    c.requireCoverage("rate_missing");
     return { currency };
   });
 }
@@ -1053,7 +1118,7 @@ async function _spendAi(userId: string, today: string): Promise<void> {
 }
 
 async function _draftCtx(userId: string, groupId: unknown) {
-  const s = await loadGroup(String(groupId ?? ""));
+  const s = await readGroup(String(groupId ?? ""));
   if (!s) fail("group_not_found", {}, 404);
   const me = _meOf(s, userId);
   if (!me) fail("group_not_found", {}, 404);
@@ -1153,7 +1218,7 @@ export async function telegramLinkCode(p: { user_id: string }) {
 /** Deep link that adds the bot to a Telegram group bound to this trip (owner). */
 export async function telegramBindCode(p: { user_id: string; group_id: unknown }) {
   const bot = _botName();
-  const s = await loadGroup(String(p.group_id ?? ""));
+  const s = await readGroup(String(p.group_id ?? ""));
   if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
   if (s.group.owner !== p.user_id) fail("owner_only", {}, 403);
   if (s.group.kind !== "travel") fail("kind_invalid");
@@ -1266,7 +1331,7 @@ export async function telegramGroups(p: { user_id: string }) {
 }
 
 export async function telegramSetGroup(p: { user_id: string; group_id: string }) {
-  const s = await loadGroup(p.group_id);
+  const s = await readGroup(p.group_id);
   if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
   await execute("UPDATE users SET telegram_group = $1 WHERE user_id = $2", [p.group_id, p.user_id]);
   return { group_id: p.group_id, name: s.group.name };

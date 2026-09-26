@@ -90,8 +90,8 @@
     });
   });
   // A saved bill changes the list's figures; a person added mid-bill needs the view.
-  S.afterWrite = function (path) {
-    if (path !== 'bill/save') return S.reload();
+  S.afterWrite = function (path, fresh) {
+    if (path !== 'bill/save') return fresh ? Promise.resolve() : S.reload();
     refreshList();
     return Promise.resolve();
   };

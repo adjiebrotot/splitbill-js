@@ -3,7 +3,7 @@
  * Telegram linking, admin), registered into the one route table.
  */
 import * as A from "../services/actions";
-import { addRoutes } from "./api_routes";
+import { addRoutes, answerWrite } from "./api_routes";
 import { binResponse, json } from "./http";
 import { err } from "../errors";
 import type { User } from "./http";
@@ -20,11 +20,11 @@ function answer<T>(r: Awaited<ReturnType<typeof A.run<T>>>): Response {
 
 addRoutes({
   // ── rates ──
-  "POST rate/set": async (_req, ctx) => answer(await A.run(() => A.setRate({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST rate/delete": async (_req, ctx) => answer(await A.run(() => A.deleteRate({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST rate/fill": async (_req, ctx) => answer(await A.run(() => A.fillRates({ ...ctx.body, user_id: need(ctx).user_id }))),
+  "POST rate/set": async (_req, ctx) => answerWrite(ctx, (uid) => A.setRate({ ...ctx.body, user_id: uid })),
+  "POST rate/delete": async (_req, ctx) => answerWrite(ctx, (uid) => A.deleteRate({ ...ctx.body, user_id: uid })),
+  "POST rate/fill": async (_req, ctx) => answerWrite(ctx, (uid) => A.fillRates({ ...ctx.body, user_id: uid })),
   "POST rate/auto": async (_req, ctx) => answer(await A.run(() => A.suggestRate({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST group/currency": async (_req, ctx) => answer(await A.run(() => A.changeCurrency({ ...ctx.body, user_id: need(ctx).user_id }))),
+  "POST group/currency": async (_req, ctx) => answerWrite(ctx, (uid) => A.changeCurrency({ ...ctx.body, user_id: uid })),
 
   // ── AI drafts ──
   "POST ai/chat": async (_req, ctx) => answer(await A.run(() => A.aiDraftFromText({ user_id: need(ctx).user_id, group_id: ctx.body.group_id, text: ctx.body.text }))),

@@ -27,6 +27,17 @@ function need(ctx: { user: User | null }): User {
   return ctx.user;
 }
 
+/**
+ * A group write. The answer carries the group's fresh `view` (the one the
+ * post-write gate computed), so the page redraws without a second request.
+ */
+export async function answerWrite<T>(ctx: { user: User | null }, fn: (userId: string) => Promise<T>): Promise<Response> {
+  const uid = need(ctx).user_id;
+  const r = await A.run(() => A.withView(uid, () => fn(uid)));
+  if (!r.ok) return answer(r);
+  return json({ ok: true, data: r.data.data, view: r.data.view });
+}
+
 const ROUTES: Record<string, Handler> = {
   // ── auth ──
   "POST auth/login": async (_req, { body }) => {
@@ -54,20 +65,19 @@ const ROUTES: Record<string, Handler> = {
   "GET boot": async (_req, ctx) => {
     const user = need(ctx);
     const page = ctx.qp.get("page") || "";
+    const uid = user.user_id;
     const r = await A.run(async () => {
-      const me = await U.getMe(user.user_id);
+      // The account and the page's data are independent reads: run them together.
+      const pageData = (async (): Promise<Record<string, unknown>> => {
+        if (page === "home") return { groups: await A.listMyGroups({ user_id: uid }), ai: aiConfigured() }; // home opens a trip's bill editor in place
+        if (page === "group") return { group: await A.getGroupView({ user_id: uid, group_id: ctx.qp.get("id") }), ai: aiConfigured() };
+        if (page === "join") return { invite: await A.peekInvite({ user_id: uid, code: ctx.qp.get("code") }) };
+        return {};
+      })();
+      pageData.catch(() => {}); // settled below; a missing account wins over its error
+      const me = await U.getMe(uid);
       if (!me) throw new A.__AuthError();
-      const data: Record<string, unknown> = { me, engine_version: ENGINE_VERSION };
-      if (page === "home") {
-        data.groups = await A.listMyGroups({ user_id: me.user_id });
-        data.ai = aiConfigured(); // home opens a trip's bill editor in place
-      }
-      if (page === "group") {
-        data.group = await A.getGroupView({ user_id: me.user_id, group_id: ctx.qp.get("id") });
-        data.ai = aiConfigured();
-      }
-      if (page === "join") data.invite = await A.peekInvite({ user_id: me.user_id, code: ctx.qp.get("code") });
-      return data;
+      return { me, engine_version: ENGINE_VERSION, ...(await pageData) };
     });
     return answer(r);
   },
@@ -87,29 +97,29 @@ const ROUTES: Record<string, Handler> = {
   "GET groups": async (_req, ctx) => answer(await A.run(() => A.listMyGroups({ user_id: need(ctx).user_id }))),
   "POST groups": async (_req, ctx) => answer(await A.run(() => A.createGroup({ ...ctx.body, user_id: need(ctx).user_id }))),
   "GET group": async (_req, ctx) => answer(await A.run(() => A.getGroupView({ user_id: need(ctx).user_id, group_id: ctx.qp.get("id") }))),
-  "POST group/rename": async (_req, ctx) => answer(await A.run(() => A.renameGroup({ ...ctx.body, user_id: need(ctx).user_id }))),
+  "POST group/rename": async (_req, ctx) => answerWrite(ctx, (uid) => A.renameGroup({ ...ctx.body, user_id: uid })),
   "POST group/delete": async (_req, ctx) => answer(await A.run(() => A.deleteGroup({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST group/invite-reset": async (_req, ctx) => answer(await A.run(() => A.resetInvite({ ...ctx.body, user_id: need(ctx).user_id }))),
+  "POST group/invite-reset": async (_req, ctx) => answerWrite(ctx, (uid) => A.resetInvite({ ...ctx.body, user_id: uid })),
   "POST invite/join": async (_req, ctx) => answer(await A.run(() => A.joinByInvite({ user_id: need(ctx).user_id, code: ctx.body.code }))),
 
   // ── members ──
-  "POST member/add": async (_req, ctx) => answer(await A.run(() => A.addMember({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST member/rename": async (_req, ctx) => answer(await A.run(() => A.renameMember({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST member/remove": async (_req, ctx) => answer(await A.run(() => A.removeMember({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST member/reactivate": async (_req, ctx) => answer(await A.run(() => A.reactivateMember({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST member/link": async (_req, ctx) => answer(await A.run(() => A.linkMember({ ...ctx.body, user_id: need(ctx).user_id }))),
+  "POST member/add": async (_req, ctx) => answerWrite(ctx, (uid) => A.addMember({ ...ctx.body, user_id: uid })),
+  "POST member/rename": async (_req, ctx) => answerWrite(ctx, (uid) => A.renameMember({ ...ctx.body, user_id: uid })),
+  "POST member/remove": async (_req, ctx) => answerWrite(ctx, (uid) => A.removeMember({ ...ctx.body, user_id: uid })),
+  "POST member/reactivate": async (_req, ctx) => answerWrite(ctx, (uid) => A.reactivateMember({ ...ctx.body, user_id: uid })),
+  "POST member/link": async (_req, ctx) => answerWrite(ctx, (uid) => A.linkMember({ ...ctx.body, user_id: uid })),
 
   // ── bills & payments ──
-  "POST bill/save": async (_req, ctx) => answer(await A.run(() => A.saveBill({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST bill/delete": async (_req, ctx) => answer(await A.run(() => A.deleteBill({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST payment/record": async (_req, ctx) => answer(await A.run(() => A.recordPayment({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST payment/delete": async (_req, ctx) => answer(await A.run(() => A.deletePayment({ ...ctx.body, user_id: need(ctx).user_id }))),
+  "POST bill/save": async (_req, ctx) => answerWrite(ctx, (uid) => A.saveBill({ ...ctx.body, user_id: uid })),
+  "POST bill/delete": async (_req, ctx) => answerWrite(ctx, (uid) => A.deleteBill({ ...ctx.body, user_id: uid })),
+  "POST payment/record": async (_req, ctx) => answerWrite(ctx, (uid) => A.recordPayment({ ...ctx.body, user_id: uid })),
+  "POST payment/delete": async (_req, ctx) => answerWrite(ctx, (uid) => A.deletePayment({ ...ctx.body, user_id: uid })),
 
   // ── settle ──
-  "POST settle": async (_req, ctx) => answer(await A.run(() => A.settleGroup({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST reopen": async (_req, ctx) => answer(await A.run(() => A.reopenGroup({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST transfer/paid": async (_req, ctx) => answer(await A.run(() => A.markTransferPaid({ ...ctx.body, user_id: need(ctx).user_id }))),
-  "POST transfer/unpaid": async (_req, ctx) => answer(await A.run(() => A.unmarkTransferPaid({ ...ctx.body, user_id: need(ctx).user_id }))),
+  "POST settle": async (_req, ctx) => answerWrite(ctx, (uid) => A.settleGroup({ ...ctx.body, user_id: uid })),
+  "POST reopen": async (_req, ctx) => answerWrite(ctx, (uid) => A.reopenGroup({ ...ctx.body, user_id: uid })),
+  "POST transfer/paid": async (_req, ctx) => answerWrite(ctx, (uid) => A.markTransferPaid({ ...ctx.body, user_id: uid })),
+  "POST transfer/unpaid": async (_req, ctx) => answerWrite(ctx, (uid) => A.unmarkTransferPaid({ ...ctx.body, user_id: uid })),
 };
 
 /** Register more routes from feature modules (rates, reports, AI, Telegram). */

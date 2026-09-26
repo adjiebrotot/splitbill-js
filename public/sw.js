@@ -7,7 +7,7 @@
  *   page loads      network first; offline, the page's cached shell, which
  *                   then renders its last boot payload from localStorage.
  */
-const CACHE = 'sb-6483371d';
+const CACHE = 'sb-e1441048';
 const STATIC = [
   '/app/static/css/shared.css?v=8872cc99',
   '/app/static/assets/icons.svg?v=17f4531f',
@@ -18,9 +18,9 @@ const STATIC = [
   '/app/static/js/i18n.js?v=3c7c0ae8',
   '/app/static/js/topbar.js?v=208398f2',
   '/app/static/js/currency.js?v=06eddacb',
-  '/app/static/js/sb.js?v=1f9197f1',
-  '/app/static/js/home.js?v=2f25f330',
-  '/app/static/js/group.js?v=1e21cbf6',
+  '/app/static/js/sb.js?v=9bc60355',
+  '/app/static/js/home.js?v=e32cd000',
+  '/app/static/js/group.js?v=fd97e322',
   '/app/static/js/bill.js?v=3b00c064',
   '/app/static/js/settings.js?v=df8606be',
   '/app/static/js/join.js?v=20af1930',
@@ -30,8 +30,8 @@ const STATIC = [
   '/app/static/pages/landing.html?v=55dee70a',
   '/app/static/pages/login.html?v=79b0ab75',
   '/app/static/pages/register.html?v=653441a5',
-  '/app/static/pages/home.html?v=2a9f7782',
-  '/app/static/pages/group.html?v=7a5f4db6',
+  '/app/static/pages/home.html?v=9fb711af',
+  '/app/static/pages/group.html?v=f4884bf2',
   '/app/static/pages/join.html?v=bdea9d20',
   '/app/static/pages/settings.html?v=cdaef579',
   '/app/static/pages/admin.html?v=84a816a2',

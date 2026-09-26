@@ -17,6 +17,8 @@ Every number comes from `src/engine/` (pure, no I/O). Server, browser preview (`
 - pg returns BIGINT as a string. Read money with `toMinor()` (`src/num.ts`). API JSON carries amounts as minor-unit strings.
 - One rounding per member per bill, then the leftover rule (payer first, else fraction holders in join order). Never floor per item and sum.
 - Every write goes through `write()` in `src/services/actions.ts`: lock group row, check status + permission, validate with the engine, write, log `group_events`, bump `revision`, recompute and refuse to commit unless books balance.
+- Reads outside a write use `readGroup` / `readUserGroups` (`repo.ts`): a per-instance cache checked against the group's `revision` (plus linked usernames) in the same one query, so never stale. Anything that changes a group's state MUST bump `revision` in the same transaction, or readers keep the old state. Cached states are shared: never mutate them or `computeShared()` output.
+- Group writes answer with the fresh `view` (`answerWrite` in `api_routes.ts`); the page takes it (`S.takeView`) instead of a second `GET group`.
 - Postgres re-checks each bill at COMMIT (deferred triggers in `src/migrations/001_initial.ts`). Do not weaken them.
 - Change the engine → run `node scripts/build_engine.mjs` (bundle is checked in; test fails when stale). Bump `ENGINE_VERSION` when a number could change.
 - New invariant or edge case → add it to `tests/unit/engine_*.test.ts` and, if it needs the DB, `tests/unit/db_actions.test.ts` / `scripts/integrity_harness.ts`.

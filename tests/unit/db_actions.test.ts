@@ -376,4 +376,84 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     expect(mine).toContain(g.group_id);
     expect(mine).not.toContain(empty.group_id);
   });
+  it("cache: a warm read is never stale, and a write's view equals a fresh read", async () => {
+    const R = await import("@/services/repo");
+    const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Cache", currency: "USD", members: [{ username: "bob" }, { name: "Dan" }] });
+    let v = await view(g.group_id);
+    const [ali, bob, dan] = ["Ali", "Bob", "Dan"].map((n) => memberId(v, n));
+
+    // A bill with several lines, members and an adjustment: the batched INSERTs keep every row and its order.
+    const w = await A.withView(uid.ali, () => A.saveBill({
+      user_id: uid.ali, group_id: g.group_id, description: "Market", date: "2026-09-01", currency: "USD", mode: "items", payer: bob,
+      items: [{ name: "Fish", qty: "2", amount: "1200", members: [ali, bob] }, { name: "Rice", amount: "300", members: [dan] }, { name: "Free", amount: "0", members: [] }],
+      adjustments: [{ kind: "tax", amount: "150" }, { kind: "discount", amount: "-50" }],
+    }));
+    expect(w.view).not.toBeNull();
+    v = await view(g.group_id);
+    expect(JSON.parse(JSON.stringify(w.view, (_k, x) => (typeof x === "bigint" ? x.toString() : x))))
+      .toEqual(JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x))));
+    const b = v.bills[0];
+    expect(b.items.map((i) => [i.name, i.qty, i.amount, i.members])).toEqual([
+      ["Fish", "2.000", "1200", [ali, bob].sort((x, y) => Number(x) - Number(y))], ["Rice", "1.000", "300", [dan]], ["Free", "1.000", "0", []],
+    ]);
+    expect(b.adjustments).toEqual([{ kind: "tax", amount: "150" }, { kind: "discount", amount: "-50" }]);
+    expect(b.total).toBe("1600");
+
+    // The write's log lines land in order, in one INSERT.
+    const ev = await db.fetchall("SELECT action, entity FROM group_events WHERE group_id = $1 ORDER BY event_id", [g.group_id]);
+    expect(ev.map((r) => `${r[0]} ${r[1]}`)).toEqual(["create group", "create bill"]);
+
+    // Warm: the same state object comes back, and home agrees with it.
+    const warm = await R.readGroup(g.group_id);
+    expect(await R.readGroup(g.group_id)).toBe(warm);
+    const home = (await A.listMyGroups({ user_id: uid.ali })).find((x) => x.group_id === g.group_id)!;
+    expect(home.bills).toBe(1);
+
+    // Any write shows at once (revision is part of the key).
+    await A.recordPayment({ user_id: uid.ali, group_id: g.group_id, from: dan, to: bob, amount: "100", date: "2026-09-01" });
+    expect((await view(g.group_id)).payments).toHaveLength(1);
+    expect((await A.listMyGroups({ user_id: uid.ali })).find((x) => x.group_id === g.group_id)!.last_at).not.toBe(home.last_at);
+
+    // A linked account's username lives outside the group: part of the key too.
+    await db.execute("UPDATE users SET username = 'bobby' WHERE user_id = $1", [uid.bob]);
+    try {
+      expect((await view(g.group_id)).members.find((m) => m.id === bob)!.username).toBe("bobby");
+    } finally {
+      await db.execute("UPDATE users SET username = 'bob' WHERE user_id = $1", [uid.bob]);
+    }
+    expect((await view(g.group_id)).members.find((m) => m.id === bob)!.username).toBe("bob");
+
+    // A refused write leaves nothing behind: the cache still matches the database.
+    const before = await view(g.group_id);
+    expect(await A.run(() => A.saveBill({ user_id: uid.ali, group_id: g.group_id, description: "x", date: "2026-09-01", mode: "even", payer: ali, total: "100", participants: [] })))
+      .toMatchObject({ ok: false });
+    expect((await view(g.group_id)).group.revision).toBe(before.group.revision);
+
+    // Deleted: gone from reads and the home list at once.
+    await A.deleteGroup({ user_id: uid.ali, group_id: g.group_id });
+    expect(await R.readGroup(g.group_id)).toBeNull();
+    expect((await A.listMyGroups({ user_id: uid.ali })).some((x) => x.group_id === g.group_id)).toBe(false);
+  });
+
+  it("boot answers the account and the page's data in one request, and writes carry the new view", async () => {
+    const { handleApi } = await import("@/webapp/api_routes");
+    await import("@/webapp/feature_routes");
+    const { sessionValue } = await import("@/webapp/auth");
+    const cookie = `sb_session=${sessionValue(uid.ali, "ali", "en")}`;
+    const call = (path: string, init: RequestInit = {}) =>
+      handleApi(new Request(`https://x.test/app/api/${path}`, { ...init, headers: { cookie, "content-type": "application/json", ...(init.headers ?? {}) } }), path.split("?")[0]);
+    const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Api", currency: "USD", members: [{ name: "Eve" }] });
+    const boot = await (await call(`boot?page=group&id=${g.group_id}`)).json();
+    expect(boot.ok).toBe(true);
+    expect(boot.data.me.user_id).toBe(uid.ali);
+    expect(boot.data.group.group.group_id).toBe(g.group_id);
+    const [ali, eve] = ["Ali", "Eve"].map((n) => boot.data.group.members.find((m: { name: string }) => m.name === n).id);
+    const r = await (await call("payment/record", { method: "POST", body: JSON.stringify({ group_id: g.group_id, from: eve, to: ali, amount: "500", date: "2026-09-01" }) })).json();
+    expect(r.ok).toBe(true);
+    expect(r.view.payments).toHaveLength(1);
+    expect(r.view.group.revision).not.toBe(boot.data.group.group.revision);
+    const bad = await (await call("payment/record", { method: "POST", body: JSON.stringify({ group_id: g.group_id, from: eve, to: eve, amount: "1" }) })).json();
+    expect(bad).toMatchObject({ ok: false, code: "payment_self" });
+    expect(bad.view).toBeUndefined();
+  });
 });
