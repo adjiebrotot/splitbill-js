@@ -40,6 +40,12 @@ function _esc(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
+/** Whether a provider is set up. Without one no email leaves the server, so
+ *  the app does not ask anyone to confirm an address. */
+export function emailConfigured(): boolean {
+  return !!process.env.RESEND_API_KEY;
+}
+
 /** Raw send. Returns a structured result; never throws on network failure. */
 export async function sendEmail(opts: {
   to: string;

@@ -10,7 +10,7 @@ import { sha256 } from "../ids";
 import { hashPassword, passwordProblem, verifyPassword } from "../password";
 import { isCurrency, normCurrency } from "../engine";
 import { cleanText, safeTimezone, DEFAULT_TZ } from "../utils";
-import { sendVerificationEmail } from "./email_service";
+import { emailConfigured, sendVerificationEmail } from "./email_service";
 
 export const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -24,6 +24,8 @@ export interface Me {
   display_name: string;
   email: string | null;
   email_verified: boolean;
+  /** false while no email provider is set up: nothing to confirm with. */
+  email_sending: boolean;
   has_password: boolean;
   language: string;
   timezone: string;
@@ -41,6 +43,7 @@ function _me(r: unknown[]): Me {
     display_name: String(r[2]),
     email: r[3] === null ? null : String(r[3]),
     email_verified: r[4] === true || r[4] === "t",
+    email_sending: emailConfigured(),
     has_password: r[5] === true || r[5] === "t",
     language: String(r[6]),
     timezone: String(r[7]),

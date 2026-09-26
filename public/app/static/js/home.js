@@ -89,7 +89,8 @@
   // ── verify email ──
   function showVerify(me) {
     var card = document.getElementById('verify-card');
-    if (!me.email || me.email_verified) { card.hidden = true; return; }
+    // No email provider set up yet: no code can arrive, so nothing to ask.
+    if (!me.email || me.email_verified || !me.email_sending) { card.hidden = true; return; }
     // Folded unless the viewer opened it before.
     try { card.open = localStorage.getItem('sb_verify_folded') === '0'; } catch (e) { /* storage off */ }
     card.hidden = false;
