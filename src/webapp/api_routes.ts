@@ -58,7 +58,10 @@ const ROUTES: Record<string, Handler> = {
       const me = await U.getMe(user.user_id);
       if (!me) throw new A.__AuthError();
       const data: Record<string, unknown> = { me, engine_version: ENGINE_VERSION };
-      if (page === "home") data.groups = await A.listMyGroups({ user_id: me.user_id });
+      if (page === "home") {
+        data.groups = await A.listMyGroups({ user_id: me.user_id });
+        data.ai = aiConfigured(); // home opens a trip's bill editor in place
+      }
       if (page === "group") {
         data.group = await A.getGroupView({ user_id: me.user_id, group_id: ctx.qp.get("id") });
         data.ai = aiConfigured();

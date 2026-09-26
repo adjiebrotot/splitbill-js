@@ -1,5 +1,5 @@
-/* home.js: "My splits" list, Add Bill (a one-off, straight into its bill),
- * New Trip, email verification. */
+/* home.js: "My splits" list, Add Bill (a trip's opens here, in bill.js; a
+ * one-off goes straight into its bill), New Trip, email verification. */
 (function () {
   var ME = null;
   var OFFLINE = false;
@@ -74,10 +74,35 @@
         icon('plus') + ' <span>' + esc(t('bill.add_for', g.name)) + '</span></button>';
     }).join('');
   }
+  /* The bill editor opens right here, on the trip's view: no page load. */
+  var S = window.SB;
   document.getElementById('trip-bills').addEventListener('click', function (ev) {
     var b = ev.target.closest('button[data-id]');
-    if (b) location.href = '/app/g/' + b.getAttribute('data-id') + '#add-bill';
+    if (!b) return;
+    var gid = b.getAttribute('data-id');
+    setBusy(b, true);
+    S.load(gid).then(function (r) {
+      setBusy(b, false);
+      if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+      // Nothing to add here (closed, or no longer a member): the trip page says why.
+      if (!S.canAddBill()) { location.href = '/app/g/' + gid; return; }
+      window.openBill(null);
+    });
   });
+  // A saved bill changes the list's figures; a person added mid-bill needs the view.
+  S.afterWrite = function (path) {
+    if (path !== 'bill/save') return S.reload();
+    refreshList();
+    return Promise.resolve();
+  };
+  function refreshList() {
+    api('groups').then(function (r) {
+      if (!r.ok) return;
+      GROUPS = r.data || [];
+      renderList(GROUPS);
+      renderTripBills(GROUPS);
+    });
+  }
 
   function open(ev) {
     var tr = ev.target.closest('tr[data-id]');
@@ -201,6 +226,8 @@
     if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
     ME = r.data.me;
     OFFLINE = !!r.offline;
+    S.me = ME;
+    S.ai = r.data.ai !== false;
     topbarSetUser(ME);
     if (OFFLINE) {
       var b = document.getElementById('offline-banner');

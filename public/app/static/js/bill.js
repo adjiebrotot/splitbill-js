@@ -11,6 +11,112 @@
   var S = window.SB;
   var $ = function (id) { return document.getElementById(id); };
 
+  /* The editor's markup lives here, once, for every page that opens it.
+     New bill: photo first, then chat, then the form. */
+  document.body.insertAdjacentHTML('beforeend',
+    '<div class="modal-overlay" id="modal-bill" role="dialog" aria-modal="true" aria-labelledby="bill-title">' +
+      '<form class="modal-card" id="bill-form" novalidate>' +
+        '<div class="modal-head">' +
+          '<h2 class="modal-title" id="bill-title"></h2>' +
+          '<span class="modal-head-actions">' +
+            '<button type="button" class="btn btn-danger btn-compact btn-icon" id="bill-delete" data-i18n-aria="common.delete" aria-label="Delete" hidden>' + icon('trash') + '</button>' +
+            '<button type="button" class="btn btn-ghost btn-compact btn-icon modal-close" onclick="closeModal(\'modal-bill\')" data-i18n-aria="common.close" aria-label="Close">' + icon('x') + '</button>' +
+          '</span>' +
+        '</div>' +
+        '<div class="modal-body">' +
+          '<div class="assist-tabs" role="tablist" id="input-tabs">' +
+            '<button type="button" class="assist-tab active" data-input="photo" role="tab">' + icon('camera') + ' <span data-i18n="input.photo">Photo</span></button>' +
+            '<button type="button" class="assist-tab" data-input="chat" role="tab">' + icon('chat') + ' <span data-i18n="input.chat">Chat</span></button>' +
+            '<button type="button" class="assist-tab" data-input="form" role="tab">' + icon('form') + ' <span data-i18n="input.form">Form</span></button>' +
+          '</div>' +
+          '<div id="ai-photo" class="stack">' +
+            '<div class="field">' +
+              '<label for="ai-caption" data-i18n="input.caption">Note (optional)</label>' +
+              '<input type="text" id="ai-caption" maxlength="300" data-i18n-ph="input.caption_ph" placeholder="Paid by Ali, drinks for Bob">' +
+            '</div>' +
+            '<label class="photo-pick" for="ai-file" id="ai-pick">' +
+              '' + icon('camera') + '' +
+              '<span data-i18n="input.photo_pick">Take or choose a receipt photo</span>' +
+            '</label>' +
+            '<input type="file" id="ai-file" accept="image/*" hidden>' +
+            '<img id="ai-thumb" class="photo-thumb" alt="" hidden>' +
+          '</div>' +
+          '<div id="ai-chat" class="stack" hidden>' +
+            '<div class="field">' +
+              '<label for="ai-text" data-i18n="input.chat_label">Describe the bill</label>' +
+              '<textarea id="ai-text" class="ai-input" maxlength="2000" data-i18n-ph="input.chat_ph" placeholder="Lunch 60 paid by Ali, split evenly with Bob and Cal"></textarea>' +
+            '</div>' +
+            '<button type="button" class="btn btn-primary btn-full" id="ai-chat-go">' + icon('sparkles') + ' <span data-i18n="input.read">Read</span></button>' +
+          '</div>' +
+          '<div class="assist-status" id="ai-status" hidden></div>' +
+          '<button type="button" class="btn btn-ghost btn-compact" id="ai-reset" hidden>' + icon('refresh') + ' <span data-i18n="bill.reset">Reset</span></button>' +
+          '<div class="chips" id="ai-unknown" hidden></div>' +
+          '<div id="bill-fields" class="stack" hidden>' +
+            '<div class="field">' +
+              '<label for="bill-desc" data-i18n="bill.desc">What for</label>' +
+              '<input type="text" id="bill-desc" maxlength="120" required>' +
+            '</div>' +
+            '<div class="field">' +
+              '<label data-i18n="bill.payer">Paid by</label>' +
+              '<div class="chips" id="payer-chips" role="radiogroup"></div>' +
+            '</div>' +
+            '<div class="assist-tabs" role="tablist" id="mode-tabs">' +
+              '<button type="button" class="assist-tab active" data-mode="even" role="tab" data-i18n="mode.even">Evenly</button>' +
+              '<button type="button" class="assist-tab" data-mode="items" role="tab" data-i18n="mode.items">By item</button>' +
+              '<button type="button" class="assist-tab" data-mode="percent" role="tab" data-i18n="mode.percent">By percent</button>' +
+            '</div>' +
+            '<div id="panel-simple" class="stack">' +
+              '<div class="field">' +
+                '<label for="bill-total" data-i18n="bill.total">Total</label>' +
+                '<div class="amount-wrap"><span class="amount-affix" aria-hidden="true"></span><input type="text" id="bill-total" inputmode="decimal" class="mono"></div>' +
+              '</div>' +
+              '<div class="field" id="even-who">' +
+                '<label data-i18n="bill.for_whom">For whom</label>' +
+                '<div class="chips" id="even-chips"></div>' +
+              '</div>' +
+              '<div class="lines" id="pcts" hidden></div>' +
+            '</div>' +
+            '<div id="panel-items" class="stack" hidden>' +
+              '<div class="lines" id="items"></div>' +
+              '<button type="button" class="tool-add-btn" id="add-item">+ <span data-i18n="bill.add_item">Add Item</span></button>' +
+              '<div class="lines" id="adjs"></div>' +
+              '<div class="btn-row">' +
+                '<button type="button" class="btn btn-ghost btn-compact" data-adj="tax">+ <span data-i18n="adj.tax">Tax</span></button>' +
+                '<button type="button" class="btn btn-ghost btn-compact" data-adj="service">+ <span data-i18n="adj.service">Service</span></button>' +
+                '<button type="button" class="btn btn-ghost btn-compact" data-adj="discount">+ <span data-i18n="adj.discount">Discount</span></button>' +
+              '</div>' +
+            '</div>' +
+            // Rarely changed: today, the split's currency, no receipt total.
+            '<details class="more" id="bill-more">' +
+              '<summary><span id="bill-more-sum"></span> ' + icon('chevron-down') + '</summary>' +
+              '<div class="stack">' +
+                '<div class="form-row">' +
+                  '<div class="field">' +
+                    '<label for="bill-date" data-i18n="bill.date">Date</label>' +
+                    '<input type="date" id="bill-date" required>' +
+                  '</div>' +
+                  '<div class="field">' +
+                    '<label for="bill-currency" data-i18n="bill.currency">Currency</label>' +
+                    '<select id="bill-currency"></select>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="field" id="stated-field">' +
+                  '<label for="bill-stated"><span data-i18n="bill.stated">Receipt total</span> <span class="tooltip-icon" tabindex="0" data-i18n-tip="bill.stated_tip" data-tip="Optional. When filled, the bill cannot be saved until the lines add up to it.">?</span></label>' +
+                  '<div class="amount-wrap"><span class="amount-affix" aria-hidden="true"></span><input type="text" id="bill-stated" inputmode="decimal" class="mono"></div>' +
+                '</div>' +
+              '</div>' +
+            '</details>' +
+            '<div class="reconcile" id="reconcile"></div>' +
+            '<div class="preview" id="preview"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="modal-actions" id="bill-actions">' +
+          '<button type="submit" class="btn btn-primary" id="bill-save" data-i18n="common.save">Save</button>' +
+        '</div>' +
+      '</form>' +
+    '</div>');
+  applyI18n(document.getElementById('modal-bill'));
+
   var B = null;         // the bill being edited
   var ok = false;       // does the current form save?
   var timer = null;
