@@ -369,7 +369,8 @@
     var b = billId ? S.view.bills.filter(function (x) { return x.id === billId; })[0] : null;
     B = b ? fromBill(b) : blank();
     B.readOnly = !!readOnly;
-    $('bill-title').textContent = t(readOnly ? 'bill.view' : b ? 'bill.edit' : 'bill.add');
+    $('bill-title').textContent = readOnly ? t('bill.view') : b ? t('bill.edit')
+      : G().kind === 'travel' ? t('bill.add_for', G().name) : t('bill.add');
     var del = $('bill-delete');
     del.hidden = !b || !!readOnly;
     del.dataset.del = b && !readOnly ? b.id : '';

@@ -165,6 +165,8 @@ export async function listMyGroups(p: { user_id: string }) {
       currency: s.group.currency,
       dp: s.group.dp,
       status: s.group.status,
+      // Can this viewer still add bills here (the home page's trip shortcuts)?
+      active: me.active,
       members: s.members.filter((m) => m.active).length,
       bills: s.bills.length,
       spent: c.spent,

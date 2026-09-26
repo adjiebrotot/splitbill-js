@@ -1249,6 +1249,12 @@
      The page title gives up width before its actions do. */
   .settings-header .head-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .head-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
+  /* On a phone the title takes its own row, whole and wrapping, under
+     [←] [status] ... [actions]. */
+  @media (max-width: 560px) {
+    .split-header { flex-wrap: wrap; row-gap: 12px; }
+    .split-header .head-title { order: 1; flex: 1 1 100%; white-space: normal; overflow-wrap: anywhere; }
+  }
   /* A page-level action between cards spaces like a card. */
   .page-action { margin-bottom: 14px; }
   /* Two secondary cards side by side; one column once they would squeeze. */

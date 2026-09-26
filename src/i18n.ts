@@ -167,6 +167,7 @@ export const STRINGS: Record<string, Entry> = {
   // ── bills ──
   "bill.title_list": { en: "Bills", id: "Tagihan" },
   "bill.add": { en: "Add Bill", id: "Tambah Tagihan" },
+  "bill.add_for": { en: "Add Bill for {0}", id: "Tambah Tagihan untuk {0}" },
   "bill.edit": { en: "Edit Bill", id: "Ubah Tagihan" },
   "bill.view": { en: "Bill", id: "Tagihan" },
   "bill.col_what": { en: "Bill", id: "Tagihan" },
