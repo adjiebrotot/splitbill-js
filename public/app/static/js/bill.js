@@ -30,7 +30,7 @@
             '<button type="button" class="assist-tab" data-input="form" role="tab">' + icon('form') + ' <span data-i18n="input.form">Form</span></button>' +
           '</div>' +
           '<div id="ai-photo" class="stack">' +
-            '<div class="field">' +
+            '<div class="field" id="ai-caption-field">' +
               '<label for="ai-caption" data-i18n="input.caption">Note (optional)</label>' +
               '<input type="text" id="ai-caption" maxlength="300" data-i18n-ph="input.caption_ph" placeholder="Paid by Ali, drinks for Bob">' +
             '</div>' +
@@ -40,6 +40,13 @@
                 '<span data-i18n="input.photo_pick">Drop or choose a receipt picture</span>' +
               '</label>' +
               '<button type="button" class="btn btn-ghost btn-full" id="ai-cam-go">' + icon('camera') + ' <span data-i18n="input.photo_camera">or take a photo</span></button>' +
+            '</div>' +
+            '<div id="ai-webcam" class="stack" hidden>' +
+              '<video id="ai-video" class="photo-cam" autoplay playsinline muted></video>' +
+              '<div class="btn-row">' +
+                '<button type="button" class="btn btn-ghost" id="ai-cam-cancel" data-i18n="common.cancel">Cancel</button>' +
+                '<button type="button" class="btn btn-primary" id="ai-cam-snap">' + icon('camera') + ' <span data-i18n="input.camera_snap">Take photo</span></button>' +
+              '</div>' +
             '</div>' +
             '<input type="file" id="ai-file" accept="image/*" hidden>' +
             '<input type="file" id="ai-cam" accept="image/*" capture="environment" hidden>' +
@@ -254,6 +261,7 @@
     $('input-tabs').hidden = !input || !S.ai;
     $('ai-photo').hidden = !input || B.tab !== 'photo';
     $('ai-chat').hidden = !input || B.tab !== 'chat';
+    if ($('ai-photo').hidden) stopCam();
     $('ai-reset').hidden = !(isNew && B.read);
     var fields = !isNew || B.read || B.tab === 'form';
     $('bill-fields').hidden = !fields;
@@ -488,7 +496,7 @@
     for (var i = 0; i < fields.length; i++) fields[i].disabled = !!readOnly;
     openModal('modal-bill', {
       initialFocus: B.tab === 'form' ? '#bill-desc' : null,
-      onClose: function () { if (S.discardEmpty) S.discardEmpty(); },
+      onClose: function () { stopCam(); if (S.discardEmpty) S.discardEmpty(); },
     });
     preview();
   };
@@ -819,11 +827,17 @@
     el.hidden = !msg;
   }
 
-  /* The pickers until a photo is picked, then only that photo. */
+  /* The pickers until a photo is picked, then only that photo. A note
+     typed before stays in sight, locked; an empty one goes away. */
   function showPick(on) {
+    stopCam();
     $('ai-file').value = '';
     $('ai-cam').value = '';
     $('ai-pick').hidden = !on;
+    var cap = $('ai-caption');
+    cap.readOnly = !on;
+    cap.classList.toggle('input-locked', !on);
+    $('ai-caption-field').hidden = !on && !cap.value.trim();
     var th = $('ai-thumb');
     th.hidden = on;
     if (on && th.src) { URL.revokeObjectURL(th.src); th.removeAttribute('src'); }
@@ -895,7 +909,7 @@
     if (!/^image\//.test(f.type || '')) return status(errMsg('image_invalid', {}), true);
     var bill = B;
     status(t('input.reading'));
-    $('ai-pick').hidden = true;
+    showPick(false);
     shrink(f).then(function (b) {
       photo = b;
       var th = $('ai-thumb');
@@ -911,7 +925,61 @@
 
   $('ai-file').addEventListener('change', function () { readPhoto($('ai-file').files[0]); });
   $('ai-cam').addEventListener('change', function () { readPhoto($('ai-cam').files[0]); });
-  $('ai-cam-go').addEventListener('click', function () { $('ai-cam').click(); });
+
+  /* Camera. A phone's own camera app (the capture input) beats anything a
+     page can draw, so a touch screen gets that. A laptop or desktop ignores
+     "capture" and would only open the file picker, so it gets a live webcam
+     preview here instead, and the file picker only when there is no camera. */
+  var cam = null; // the open webcam stream
+  function stopCam() {
+    if (cam) cam.getTracks().forEach(function (tr) { tr.stop(); });
+    cam = null;
+    $('ai-video').srcObject = null;
+    $('ai-webcam').hidden = true;
+  }
+
+  function openWebcam() {
+    var bill = B;
+    $('ai-pick').hidden = true;
+    status('');
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      .then(function (stream) {
+        if (bill !== B || !isModalOpen('modal-bill') || $('ai-photo').hidden) {
+          stream.getTracks().forEach(function (tr) { tr.stop(); });
+          return;
+        }
+        cam = stream;
+        $('ai-video').srcObject = stream;
+        $('ai-webcam').hidden = false;
+      })
+      .catch(function () {
+        $('ai-pick').hidden = false;
+        status(t('input.camera_off'), true);
+      });
+  }
+
+  $('ai-cam-go').addEventListener('click', function () {
+    var touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    if (!touch && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) openWebcam();
+    else $('ai-cam').click();
+  });
+
+  $('ai-cam-cancel').addEventListener('click', function () {
+    stopCam();
+    $('ai-pick').hidden = false;
+  });
+
+  $('ai-cam-snap').addEventListener('click', function () {
+    var v = $('ai-video');
+    if (!cam || !v.videoWidth) return;
+    var c = document.createElement('canvas');
+    c.width = v.videoWidth;
+    c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    c.toBlob(function (b) {
+      if (b) readPhoto(new File([b], 'receipt.jpg', { type: 'image/jpeg' }));
+    }, 'image/jpeg', 0.92);
+  });
 
   // Drag and drop onto the drop area.
   var drop = $('ai-drop');

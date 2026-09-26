@@ -1259,7 +1259,10 @@
   .photo-pick .icon { width: 22px; height: 22px; }
   .photo-pick:hover, .photo-pick.over { background: var(--bg); }
   .photo-pick.over { border-color: var(--primary-strong); color: var(--primary-strong); }
-  .photo-thumb { max-width: 100%; max-height: 180px; border-radius: 10px; display: block; margin: 0 auto; }
+  .photo-cam { width: 100%; max-height: 50vh; border-radius: 10px; display: block; background: #000; object-fit: contain; }
+  /* A value already sent, shown but not editable: no fill, dashed edge. */
+  input.input-locked, input.input-locked:focus { background: transparent; border-style: dashed; border-color: var(--border-strong); color: var(--text-muted); cursor: default; }
+  .photo-thumb { max-width: 100%; max-height: 180px; border-radius: 10px; display: block; margin-left: auto; margin-right: auto; }
 
   /* ── Split page layout: most used first and full width, the rest after. ──
      The page title gives up width before its actions do. */

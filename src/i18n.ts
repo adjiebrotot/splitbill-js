@@ -222,6 +222,8 @@ export const STRINGS: Record<string, Entry> = {
   "input.chat_ph": { en: "Lunch 60 paid by Ali, split evenly with Bob and Cal", id: "Makan siang 60 ribu dibayar Ali, bagi rata dengan Bob dan Cal" },
   "input.photo_pick": { en: "Drop or choose a receipt picture", id: "Seret atau pilih gambar struk" },
   "input.photo_camera": { en: "or take a photo", id: "atau ambil foto" },
+  "input.camera_snap": { en: "Take photo", id: "Ambil foto" },
+  "input.camera_off": { en: "Camera not available. Allow camera access or choose a picture instead.", id: "Kamera tidak tersedia. Izinkan akses kamera atau pilih gambar saja." },
   "input.caption": { en: "Note (optional)", id: "Catatan (opsional)" },
   "input.caption_ph": { en: "Paid by Ali, drinks for Bob", id: "Dibayar Ali, minuman untuk Bob" },
   "input.read": { en: "Read", id: "Baca" },
