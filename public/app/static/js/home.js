@@ -90,9 +90,14 @@
     });
   });
   // A saved bill changes the list's figures; a person added mid-bill needs the view.
-  S.afterWrite = function (path, fresh) {
+  S.afterWrite = function (path, fresh, r) {
     if (path !== 'bill/save') return fresh ? Promise.resolve() : S.reload();
-    refreshList();
+    // The answer carries this split's new row: patch it in, no list reload.
+    if (r && r.row) {
+      GROUPS = GROUPS.filter(function (g) { return g.group_id !== r.row.group_id; }).concat([r.row]);
+      renderList(GROUPS);
+      renderTripBills(GROUPS);
+    } else refreshList();
     return Promise.resolve();
   };
   function refreshList() {

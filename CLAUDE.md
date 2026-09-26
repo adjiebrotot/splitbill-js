@@ -18,14 +18,15 @@ Every number comes from `src/engine/` (pure, no I/O). Server, browser preview (`
 - One rounding per member per bill, then the leftover rule (payer first, else fraction holders in join order). Never floor per item and sum.
 - Every write goes through `write()` in `src/services/actions.ts`: lock group row, check status + permission, validate with the engine, write, log `group_events`, bump `revision`, recompute and refuse to commit unless books balance.
 - Reads outside a write use `readGroup` / `readUserGroups` (`repo.ts`): a per-instance cache checked against the group's `revision` (plus linked usernames) in the same one query, so never stale. Anything that changes a group's state MUST bump `revision` in the same transaction, or readers keep the old state. Cached states are shared: never mutate them or `computeShared()` output.
-- Group writes answer with the fresh `view` (`answerWrite` in `api_routes.ts`); the page takes it (`S.takeView`) instead of a second `GET group`.
+- Group writes answer with the fresh `view` and home-list `row` (`answerWrite` in `api_routes.ts`); the page takes them (`S.takeView`, home's `afterWrite`) instead of a second request. `write()` reuses this instance's cached state when the lock's key matches it.
+- Home list reads `group_summaries` (`summaryOf` in `ledger.ts`, written by `write()` in the same transaction, valid only at the group's `revision` and `ENGINE_VERSION.SUMMARY_VERSION`; anything else is recomputed and stored). Change what a summary holds → bump `SUMMARY_VERSION`.
 - Postgres re-checks each bill at COMMIT (deferred triggers in `src/migrations/001_initial.ts`). Do not weaken them.
 - Change the engine → run `node scripts/build_engine.mjs` (bundle is checked in; test fails when stale). Bump `ENGINE_VERSION` when a number could change.
 - New invariant or edge case → add it to `tests/unit/engine_*.test.ts` and, if it needs the DB, `tests/unit/db_actions.test.ts` / `scripts/integrity_harness.ts`.
 
 ## Automate before asking
 
-If code can do it, do it; an error is only for what code cannot decide. A trip bill or payment in a currency with no rate gets the market rate on save (`_autoRatesFor` fetches BEFORE `write()`, `_addAutoRates` inserts inside it, source `auto`, first rate of a currency is "from the start"); the page calls `rate/fill` for any gap left. A one-off is named after its bill (`saveBill`), and one left without a bill is deleted (client on close, `cleanup()` after a day).
+If code can do it, do it; an error is only for what code cannot decide. A trip bill or payment in a currency with no rate gets the market rate on save (`_autoRatesFor` fetches BEFORE `write()` through `marketRate` in `fx_providers.ts`: one rate per pair per day, memory then shared `fx_market` table then provider, `_addAutoRates` inserts inside it, source `auto`, first rate of a currency is "from the start"); the page calls `rate/fill` for any gap left. A one-off is named after its bill (`saveBill`), and one left without a bill is deleted (client on close, `cleanup()` after a day).
 
 ## Architecture: single hub
 
@@ -65,7 +66,7 @@ node scripts/build_engine.mjs      # if src/engine changed
 npx tsx scripts/stamp_assets.ts    # always, last
 ```
 
-(`npm run gen` runs all three.) `stamp_assets` writes content hashes into every `?v=` and derives the `sw.js` CACHE name. `tests/unit/assets.test.ts` fails when anything is stale. There is ONE `sw.js`, in `public/`.
+(`npm run gen` runs all three.) `stamp_assets` writes content hashes into every `?v=`, derives the `sw.js` CACHE name, and regenerates `<x>.min.js` / `<x>.min.css` beside every hand-written source (esbuild). Edit the sources; pages and `sw.js` load the `.min` copies. Fonts are self-hosted in `assets/fonts` (no Google Fonts). `tests/unit/assets.test.ts` fails when anything is stale. There is ONE `sw.js`, in `public/`.
 
 ## Layout: read DESIGN-SYSTEM.md first
 

@@ -182,9 +182,10 @@ const STATE_JSON = `json_build_object(
  * so those are part of the key too: a renamed or deleted account is never
  * served stale.
  */
-const KEY_SQL = `g.revision::text || COALESCE((
+const USERS_KEY_SQL = `COALESCE((
     SELECT string_agg(':' || m.member_id || '=' || u.username, '' ORDER BY m.member_id)
     FROM members m JOIN users u ON u.user_id = m.user_id WHERE m.group_id = g.group_id), '')`;
+const KEY_SQL = `g.revision::text || ${USERS_KEY_SQL}`;
 
 /**
  * `from` yields the groups rows; $2/$3 are the (id, key) pairs the caller
@@ -200,14 +201,6 @@ LEFT JOIN unnest($2::text[], $3::text[]) AS kn(id, key) ON kn.id = g.group_id${o
 }
 
 const BY_IDS_SQL = stateSql("(SELECT * FROM groups WHERE group_id = ANY($1::text[]) AND deleted_at IS NULL)");
-
-/** A user's groups, newest first (the home list), in the same one statement. */
-const BY_USER_SQL = stateSql(
-  `(SELECT * FROM groups gg WHERE gg.deleted_at IS NULL
-      AND EXISTS (SELECT 1 FROM members m WHERE m.group_id = gg.group_id AND m.user_id = $1)
-    ORDER BY gg.created_at DESC LIMIT 200)`,
-  "\nORDER BY g.created_at DESC",
-);
 
 function _parse(v: unknown): GroupState {
   return (typeof v === "string" ? JSON.parse(v) : v) as GroupState;
@@ -226,10 +219,8 @@ function _parse(v: unknown): GroupState {
 // compute()'s memoized output) as read-only.
 
 const CACHE_MAX = 500;
-const USERS_MAX = 2000;
 interface Entry { key: string; s: GroupState }
 const _cache = new Map<string, Entry>();
-const _userGroups = new Map<string, string[]>();
 
 function _lru<K, V>(m: Map<K, V>, k: K, v: V, max: number): void {
   m.delete(k);
@@ -244,7 +235,17 @@ export function rememberGroup(id: string, key: string, s: GroupState): void {
 /** Tests: start from a cold instance. */
 export function _resetGroupCache(): void {
   _cache.clear();
-  _userGroups.clear();
+}
+
+/** This instance's last committed state of a group, at whatever key: no I/O. May be stale. */
+export function peekGroup(id: string): GroupState | null {
+  return _cache.get(id)?.s ?? null;
+}
+
+/** The cached state when it is exactly at `key` (so equal to the database's). */
+export function cachedAt(id: string, key: string): GroupState | null {
+  const e = _cache.get(id);
+  return e && e.key === key ? e.s : null;
 }
 
 async function _read(sql: string, first: unknown, ids: string[], cached: boolean): Promise<Map<string, GroupState>> {
@@ -295,14 +296,6 @@ export async function readGroup(id: string): Promise<GroupState | null> {
   return (await readGroups([id])).get(id) ?? null;
 }
 
-/** Every live group `userId` is a member of, newest first, at most 200. */
-export async function readUserGroups(userId: string): Promise<GroupState[]> {
-  const cached = !inTransaction();
-  const m = await _read(BY_USER_SQL, userId, cached ? _userGroups.get(userId) ?? [] : [], cached);
-  if (cached) _lru(_userGroups, userId, [...m.keys()], USERS_MAX);
-  return [...m.values()];
-}
-
 /**
  * Lock the group row for the rest of the transaction. Must run inside
  * atomic(): every write serializes on this, including settle.
@@ -320,11 +313,11 @@ export async function lockGroup(id: string): Promise<{ status: string; revision:
  * row lock as FOR UPDATE. `revision` is the value before the bump. A throw
  * later in the transaction rolls the bump back with everything else.
  */
-export async function lockAndBump(id: string): Promise<{ status: string; revision: string; owner: string; kind: string } | null> {
+export async function lockAndBump(id: string): Promise<{ status: string; revision: string; owner: string; kind: string; key: string } | null> {
   const r = await fetchone(
-    `UPDATE groups SET revision = revision + 1 WHERE group_id = $1 AND deleted_at IS NULL
-     RETURNING status, (revision - 1)::text, owner_user_id::text, kind`,
+    `UPDATE groups g SET revision = g.revision + 1 WHERE g.group_id = $1 AND g.deleted_at IS NULL
+     RETURNING g.status, (g.revision - 1)::text, g.owner_user_id::text, g.kind, (g.revision - 1)::text || ${USERS_KEY_SQL}`,
     [id],
   );
-  return r ? { status: String(r[0]), revision: String(r[1]), owner: String(r[2]), kind: String(r[3]) } : null;
+  return r ? { status: String(r[0]), revision: String(r[1]), owner: String(r[2]), kind: String(r[3]), key: String(r[4]) } : null;
 }

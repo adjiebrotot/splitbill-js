@@ -29,6 +29,15 @@ describe("static assets", () => {
     }
   });
 
+  it("pages load the minified copy of every hand-written script and stylesheet", () => {
+    for (const p of pages) {
+      for (const m of read(p).matchAll(/(?:src|href)="\/app\/static\/(?:js|css)\/([^"?]+)\?v=/g)) {
+        expect(["engine.js", "i18n-all.js"].includes(m[1]) || /\.min\.(js|css)$/.test(m[1]), `${p} loads ${m[1]}`).toBe(true);
+      }
+      expect(read(p), p).not.toContain("fonts.googleapis.com");
+    }
+  });
+
   it("every rewrite target exists and sw.js maps the same URLs", () => {
     const cfg = read("next.config.mjs");
     const sw = read("public/sw.js");
@@ -69,7 +78,7 @@ describe("page contract (DESIGN-SYSTEM.md)", () => {
 
   it("no JSON.stringify inside an HTML attribute", () => {
     for (const f of readdirSync(path.join(ROOT, "public/app/static/js"))) {
-      if (f === "engine.js" || f === "i18n-all.js") continue;
+      if (f === "engine.js" || f === "i18n-all.js" || f.includes(".min.")) continue;
       expect(read("public/app/static/js/" + f), f).not.toMatch(/="[^"]*' \+ JSON\.stringify/);
     }
   });

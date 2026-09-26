@@ -173,12 +173,50 @@ export async function imageJson(system: string, image: { b64: string; mime: stri
   throw last;
 }
 
+/**
+ * Width and height of a baseline/progressive JPEG and whether it carries EXIF
+ * (which may rotate it), read from its markers without decoding. null when the
+ * bytes are not a JPEG this can read.
+ */
+export function jpegInfo(b: Uint8Array): { w: number; h: number; exif: boolean } | null {
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return null;
+  let exif = false;
+  let i = 2;
+  while (i + 4 <= b.length) {
+    if (b[i] !== 0xff) return null;
+    const m = b[i + 1];
+    if (m === 0xff) { i += 1; continue; } // fill byte
+    if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; } // no length
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (len < 2) return null;
+    if (m === 0xe1 && i + 10 <= b.length && String.fromCharCode(b[i + 4], b[i + 5], b[i + 6], b[i + 7]) === "Exif") exif = true;
+    // SOF0..SOF15, except DHT (C4), JPG (C8) and DAC (CC).
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+      if (i + 9 > b.length) return null;
+      return { h: (b[i + 5] << 8) | b[i + 6], w: (b[i + 7] << 8) | b[i + 8], exif };
+    }
+    if (m === 0xda || m === 0xd9) return null; // scan or end before any frame header
+    i += 2 + len;
+  }
+  return null;
+}
+
+/** Longest side sent to the vision model. */
+const IMAGE_MAX_SIDE = 1600;
+
 /** Downscale to 1600px on the long side, JPEG q85: enough for receipt text. */
 export async function normalizeImage(bytes: Uint8Array, mime: string): Promise<{ bytes: Uint8Array; mime: string }> {
+  // The page already shrinks a photo to a plain JPEG (bill.js shrink()), and
+  // Telegram sends one too: decoding and re-encoding it again only costs a
+  // cold Skia load and CPU. EXIF may carry a rotation, so that is still drawn.
+  if (mime === "image/jpeg" && bytes.length <= 2 * 1024 * 1024) {
+    const info = jpegInfo(bytes);
+    if (info && !info.exif && info.w > 0 && info.h > 0 && Math.max(info.w, info.h) <= IMAGE_MAX_SIDE) return { bytes, mime };
+  }
   try {
     const { createCanvas, loadImage } = await import("@napi-rs/canvas");
     const img = await loadImage(Buffer.from(bytes));
-    const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const scale = Math.min(1, IMAGE_MAX_SIDE / Math.max(img.width, img.height));
     const w = Math.max(1, Math.round(img.width * scale));
     const h = Math.max(1, Math.round(img.height * scale));
     const canvas = createCanvas(w, h);

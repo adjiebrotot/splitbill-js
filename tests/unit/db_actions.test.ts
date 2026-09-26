@@ -331,6 +331,8 @@ describe.skipIf(!URL)("actions against Postgres", () => {
       const rates: Record<string, Record<string, number>> = { JPY: { IDR: 108.5 }, USD: { IDR: 16250 } };
       return { json: async () => ({ success: true, rates: rates[base] ?? {} }) } as Response;
     }));
+    // The provider is back: earlier tests saw it down, and a failure is remembered for 5 minutes.
+    (await import("@/fx_providers"))._resetFxCache();
     const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Osaka", currency: "IDR", members: [] });
     let v = await view(g.group_id);
     await A.joinByInvite({ user_id: uid.bob, code: v.group.invite_code! });
@@ -455,5 +457,60 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     const bad = await (await call("payment/record", { method: "POST", body: JSON.stringify({ group_id: g.group_id, from: eve, to: eve, amount: "1" }) })).json();
     expect(bad).toMatchObject({ ok: false, code: "payment_self" });
     expect(bad.view).toBeUndefined();
+  });
+  it("home list: rows come from group_summaries, stale ones are recomputed and stored", async () => {
+    const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Summary", currency: "USD", members: [{ name: "Fay" }] });
+    // New group: no summary yet, so the list computes it and stores it.
+    expect((await A.listMyGroups({ user_id: uid.ali })).find((x) => x.group_id === g.group_id)!.bills).toBe(0);
+    const stored = await db.fetchone("SELECT revision::text, version FROM group_summaries WHERE group_id = $1", [g.group_id]);
+    expect(stored![0]).toBe((await view(g.group_id)).group.revision);
+
+    // A warm write reuses the cached state; a join from elsewhere moves the key, so the next write loads fresh and sees Bob.
+    let v = await view(g.group_id);
+    await A.joinByInvite({ user_id: uid.bob, code: v.group.invite_code! });
+    const bobMember = (await db.fetchone("SELECT member_id::text FROM members WHERE group_id = $1 AND user_id = $2", [g.group_id, uid.bob]))![0] as string;
+    const ali = memberId(v, "Ali");
+    const w = await A.withView(uid.ali, () => A.saveBill({ user_id: uid.ali, group_id: g.group_id, description: "Taxi", date: "2026-09-01", mode: "even", payer: ali, total: "900",
+      participants: [{ member: ali }, { member: bobMember }] }));
+
+    // The write stored the summary in the same transaction, and its row is what the list shows.
+    const rev = (await db.fetchone("SELECT revision::text FROM groups WHERE group_id = $1", [g.group_id]))![0];
+    expect((await db.fetchone("SELECT revision::text FROM group_summaries WHERE group_id = $1", [g.group_id]))![0]).toBe(rev);
+    const row = (await A.listMyGroups({ user_id: uid.ali })).find((x) => x.group_id === g.group_id)!;
+    expect(row).toEqual(w.row);
+    expect(row).toMatchObject({ bills: 1, spent: 900n, my_share: 450n, my_net: 450n, stage: "open" });
+    expect((await A.listMyGroups({ user_id: uid.bob })).find((x) => x.group_id === g.group_id)).toMatchObject({ my_net: -450n, active: true });
+
+    // A summary from another engine or summary version is never trusted.
+    await db.execute("UPDATE group_summaries SET version = 'old', data = jsonb_set(data, '{bills}', '99') WHERE group_id = $1", [g.group_id]);
+    expect((await A.listMyGroups({ user_id: uid.ali })).find((x) => x.group_id === g.group_id)!.bills).toBe(1);
+    // Nor one behind the group's revision.
+    await db.execute("UPDATE group_summaries SET revision = revision - 1, data = jsonb_set(data, '{bills}', '99') WHERE group_id = $1", [g.group_id]);
+    expect((await A.listMyGroups({ user_id: uid.ali })).find((x) => x.group_id === g.group_id)!.bills).toBe(1);
+  });
+
+  it("market rates: one fetch per pair per day, shared through fx_market; a dead provider is asked once", async () => {
+    const fx = await import("@/fx_providers");
+    fx._resetFxCache();
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => { calls++; return { json: async () => ({ success: true, rates: { SGD: 1.35 } }) } as unknown as Response; }));
+    expect(await fx.marketRate("EUR", "SGD", "2026-08-01")).toBe(1.35);
+    expect(await fx.marketRate("EUR", "SGD", "2026-08-01")).toBe(1.35);
+    expect(calls).toBe(1);
+    // Another instance (cold memory) reads the shared row, not the provider.
+    fx._resetFxCache();
+    expect(await fx.marketRate("EUR", "SGD", "2026-08-01")).toBe(1.35);
+    expect(calls).toBe(1);
+    // Concurrent asks share one fetch.
+    await Promise.all([fx.marketRate("EUR", "SGD", null), fx.marketRate("EUR", "SGD", null)]);
+    expect(calls).toBe(2);
+    // Down: asked once, then not again for a while.
+    offline();
+    fx._resetFxCache();
+    expect(await fx.marketRate("CHF", "SGD", "2026-08-02")).toBeNull();
+    const f = globalThis.fetch as unknown as { mock: { calls: unknown[] } };
+    const n = f.mock.calls.length;
+    expect(await fx.marketRate("CHF", "SGD", "2026-08-02")).toBeNull();
+    expect(f.mock.calls.length).toBe(n);
   });
 });

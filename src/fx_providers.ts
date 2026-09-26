@@ -47,3 +47,79 @@ export function bigSideFirst(settlementPerForeign: number): { rate: string; inve
   // shortest round-trip form: toFixed(12) printed float noise (17948.302459999999).
   return { rate: String(Number(v.toPrecision(10))), inverted };
 }
+
+// ── one rate per pair per day ──────────────────────────────────────────────
+//
+// Market rates only prefill forms and fill a trip's missing rates, and a split
+// is not a bank: the first rate fetched for a pair on a day serves the whole
+// day, for every instance. Order: this instance's memory, then the shared
+// fx_market table, then the provider (stored for everyone). A historical day
+// never changes; "latest" is stored under today's UTC date. A provider that
+// is down is not asked again for 5 minutes, so saves do not each wait for its
+// timeout.
+
+const MEM_MAX = 2000;
+const NEG_MS = 5 * 60 * 1000;
+const _mem = new Map<string, number>();
+const _neg = new Map<string, number>();
+const _inflight = new Map<string, Promise<number | null>>();
+
+/** Tests: forget everything this instance remembers. */
+export function _resetFxCache(): void {
+  _mem.clear();
+  _neg.clear();
+  _inflight.clear();
+}
+
+function _utcToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function _stored(from: string, to: string, day: string): Promise<number | null> {
+  try {
+    const { fetchone } = await import("./db");
+    const r = await fetchone("SELECT rate FROM fx_market WHERE base = $1 AND quote = $2 AND day = $3::date", [from, to, day]);
+    return r ? Number(r[0]) : null;
+  } catch {
+    return null; // the cache is optional: a failed read just asks the provider
+  }
+}
+
+async function _store(from: string, to: string, day: string, rate: number): Promise<void> {
+  try {
+    const { execute } = await import("./db");
+    await execute("INSERT INTO fx_market (base, quote, day, rate) VALUES ($1, $2, $3::date, $4) ON CONFLICT DO NOTHING", [from, to, day, rate]);
+  } catch {
+    /* optional, as above */
+  }
+}
+
+/** settlement-per-foreign rate for `date` (null = today), cached for the day. */
+export async function marketRate(fromCcy: string, toCcy: string, date: string | null): Promise<number | null> {
+  if (fromCcy === toCcy) return 1;
+  const day = date ?? _utcToday();
+  const key = `${fromCcy}>${toCcy}@${day}`;
+  const hit = _mem.get(key);
+  if (hit !== undefined) return hit;
+  if ((_neg.get(key) ?? 0) > Date.now()) return null;
+  let p = _inflight.get(key);
+  if (!p) {
+    p = (async () => {
+      let rate = await _stored(fromCcy, toCcy, day);
+      if (rate === null) {
+        rate = await fetchFxratesBest(fromCcy, toCcy, date);
+        if (rate === null) {
+          _neg.set(key, Date.now() + NEG_MS);
+          return null;
+        }
+        await _store(fromCcy, toCcy, day, rate);
+      }
+      _mem.delete(key);
+      _mem.set(key, rate);
+      if (_mem.size > MEM_MAX) _mem.delete(_mem.keys().next().value as string);
+      return rate;
+    })().finally(() => _inflight.delete(key));
+    _inflight.set(key, p);
+  }
+  return p;
+}

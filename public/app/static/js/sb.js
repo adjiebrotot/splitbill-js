@@ -4,8 +4,9 @@
  * the bill editor (bill.js) on it without leaving the page.
  *
  *   S.onView()           called after every (re)load, to redraw the page
- *   S.afterWrite(path, fresh)  optional: replaces the reload after a write
- *                        (fresh: the write's answer carried the new view)
+ *   S.afterWrite(path, fresh, r)  optional: replaces the reload after a write
+ *                        (fresh: the write's answer carried the new view; r is
+ *                        that answer, with the group's home-list row)
  *   S.onDiscarded()      called once an empty one-off is deleted
  */
 (function () {
@@ -112,7 +113,7 @@
       }
       if (okMsg) showToast(okMsg);
       var fresh = S.takeView(r);
-      return (S.afterWrite ? S.afterWrite(path, fresh) : fresh ? Promise.resolve() : S.reload()).then(function () { return r; });
+      return (S.afterWrite ? S.afterWrite(path, fresh, r) : fresh ? Promise.resolve() : S.reload()).then(function () { return r; });
     });
   };
 

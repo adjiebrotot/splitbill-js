@@ -23,9 +23,12 @@ import {
 } from "../engine";
 import { newGroupId, newInviteCode } from "../ids";
 import { addDays, cleanText, isDate, localDate, safeTimezone, DEFAULT_TZ } from "../utils";
-import { compute, computeShared, stageFor, viewOf, type GroupView } from "./ledger";
 import {
-  loadGroup, loadGroupsKeyed, lockAndBump, lockGroup, readGroup, readUserGroups, rememberGroup, type GroupState, type MemberRow,
+  compute, computeShared, listRow, summaryOf, viewOf, SUMMARY_VERSION, type GroupSummary, type GroupView, type ListRow,
+} from "./ledger";
+import {
+  cachedAt, loadGroup, loadGroupsKeyed, lockAndBump, lockGroup, peekGroup, readGroup, readGroups, rememberGroup,
+  type GroupState, type MemberRow,
 } from "./repo";
 import { findUserByUsername, getMe } from "./user_service";
 import { AiUnavailable } from "./llm_client";
@@ -96,17 +99,33 @@ function _meOf(s: GroupState, userId: string): MemberRow | null {
 }
 
 /** The state the last write() in a withView() block verified and committed. */
-const _written = new AsyncLocalStorage<{ s?: GroupState; out?: GroupOut }>();
+const _written = new AsyncLocalStorage<{ s?: GroupState; out?: GroupOut; sum?: GroupSummary }>();
 
 /**
  * Run a group write and hand back the view the post-write gate already
- * computed, so a page shows the result without loading the group again.
- * `view` is null when nothing was verified (e.g. the group was deleted).
+ * computed, so a page shows the result without loading the group again, and
+ * the group's home-list row (home patches its list instead of reloading it).
+ * Both are null when nothing was verified (e.g. the group was deleted).
  */
-export async function withView<T>(userId: string, fn: () => Promise<T>): Promise<{ data: T; view: GroupView | null }> {
-  const box: { s?: GroupState; out?: GroupOut } = {};
+export async function withView<T>(userId: string, fn: () => Promise<T>): Promise<{ data: T; view: GroupView | null; row: ListRow | null }> {
+  const box: { s?: GroupState; out?: GroupOut; sum?: GroupSummary } = {};
   const data = await _written.run(box, fn);
-  return { data, view: box.s && box.out ? viewOf(box.s, box.out, userId) : null };
+  if (!box.s || !box.out || !box.sum) return { data, view: null, row: null };
+  return { data, view: viewOf(box.s, box.out, userId), row: listRow(box.s.group.group_id, box.sum, userId) };
+}
+
+/** Summaries are valid for one engine and one summary shape. */
+const SUMMARY_V = `${ENGINE_VERSION}.${SUMMARY_VERSION}`;
+
+const SUMMARY_UPSERT = `INSERT INTO group_summaries (group_id, revision, version, data)
+  SELECT x.id, x.rev::bigint, $VER, x.d::jsonb FROM unnest($IDS::text[], $REVS::text[], $DATA::text[]) AS x(id, rev, d)
+  ON CONFLICT (group_id) DO UPDATE SET revision = EXCLUDED.revision, version = EXCLUDED.version, data = EXCLUDED.data
+  WHERE group_summaries.revision < EXCLUDED.revision
+     OR (group_summaries.revision = EXCLUDED.revision AND group_summaries.version <> EXCLUDED.version)`;
+
+function _summarySql(n: number): string {
+  const at: Record<string, number> = { VER: n, IDS: n + 1, REVS: n + 2, DATA: n + 3 };
+  return SUMMARY_UPSERT.replace(/\$(VER|IDS|REVS|DATA)\b/g, (_m, k: string) => "$" + at[k]);
 }
 
 /**
@@ -121,7 +140,9 @@ async function write<T>(userId: string, groupId: unknown, fn: (c: Ctx) => Promis
     const lock = await lockAndBump(gid);
     if (!lock) fail("group_not_found", {}, 404);
     if (opts.expectedRevision !== undefined && String(opts.expectedRevision) !== lock.revision) fail("stale_revision", {}, 409);
-    const s = (await loadGroup(gid))!;
+    // Under the lock, the committed state at the old key is exactly what a load
+    // would return: a warm instance skips the load.
+    const s = cachedAt(gid, lock.key) ?? (await loadGroup(gid))!;
     const me = _meOf(s, userId);
     if (!me) fail("group_not_found", {}, 404);
     const events: [string, string, string | null, string | null][] = [];
@@ -132,8 +153,10 @@ async function write<T>(userId: string, groupId: unknown, fn: (c: Ctx) => Promis
       requireCoverage: (code) => { coverage = code; },
     };
     const r = await fn(ctx);
-    await _events(gid, userId, events);
     verified = await _verify(gid, coverage);
+    const v = verified as Verified | null;
+    if (v) await _logAndSummarize(gid, userId, events, v);
+    else await _events(gid, userId, events);
     return r;
   });
   // Committed (unless joined into a caller's transaction, which may still roll
@@ -142,12 +165,25 @@ async function write<T>(userId: string, groupId: unknown, fn: (c: Ctx) => Promis
   if (v && !inTransaction()) {
     rememberGroup(gid, v.key, v.s);
     const box = _written.getStore();
-    if (box) { box.s = v.s; box.out = v.out; }
+    if (box) { box.s = v.s; box.out = v.out; box.sum = v.sum; }
   }
   return result;
 }
 
-interface Verified { key: string; s: GroupState; out: GroupOut }
+interface Verified { key: string; s: GroupState; out: GroupOut; sum: GroupSummary }
+
+/** The write's log lines and the group's new home-list summary, in one statement. */
+async function _logAndSummarize(gid: string, userId: string, ev: [string, string, string | null, string | null][], v: Verified): Promise<void> {
+  await execute(
+    `WITH ev AS (
+       INSERT INTO group_events (group_id, user_id, action, entity, entity_id, data)
+       SELECT $1::text, $2::bigint, x.a, x.e, x.i, x.d::jsonb
+         FROM unnest($3::text[], $4::text[], $5::text[], $6::text[]) WITH ORDINALITY AS x(a, e, i, d, n) ORDER BY x.n)
+     ${_summarySql(7)}`,
+    [gid, userId, ev.map((e) => e[0]), ev.map((e) => e[1]), ev.map((e) => e[2]), ev.map((e) => e[3]),
+      SUMMARY_V, [gid], [v.s.group.revision], [JSON.stringify(v.sum)]],
+  );
+}
 
 /**
  * The post-write gate. Every bill and payment must convert, balances must sum
@@ -177,7 +213,7 @@ async function _verify(gid: string, coverage: string | null = null): Promise<Ver
       if (b.net !== (pending.get(b.id) ?? 0n)) fail("internal_settled_mismatch", {}, 500);
     }
   }
-  return { key: e.key, s, out };
+  return { key: e.key, s, out, sum: summaryOf(s, out) };
 }
 
 function _requireOwner(c: Ctx): void {
@@ -206,47 +242,44 @@ export async function getGroupView(p: { user_id: string; group_id: unknown }): P
   return viewOf(s, computeShared(s), p.user_id);
 }
 
-export async function listMyGroups(p: { user_id: string }) {
-  const out = [];
-  for (const s of await readUserGroups(p.user_id)) {
-    const c = computeShared(s);
-    const me = _meOf(s, p.user_id)!;
-    const bal = c.balances.find((b) => b.id === me.id);
-    out.push({
-      group_id: s.group.group_id,
-      kind: s.group.kind,
-      name: s.group.name,
-      currency: s.group.currency,
-      dp: s.group.dp,
-      status: s.group.status,
-      // Can this viewer still add bills here (the home page's trip shortcuts)?
-      active: me.active,
-      members: s.members.filter((m) => m.active).length,
-      bills: s.bills.length,
-      spent: c.spent,
-      // The viewer's own spending: their share of every bill, not what they paid.
-      my_share: bal?.share ?? 0n,
-      my_net: bal?.net ?? 0n,
-      // Payments still owed (a finalised trip's balances equal its unpaid transfers).
-      owed: c.transfers.length,
-      stage: stageFor(s, c),
-      created_at: s.group.created_at,
-      // Newest activity: the last bill or payment written, else the split itself.
-      last_at: _lastActivity(s),
-    });
+/**
+ * The home list. One small row per group from group_summaries; a group whose
+ * summary is missing or behind its revision (created, joined, or written
+ * before summaries existed) is computed from its books and stored again, so
+ * the next visit, on any instance, reads it as a row.
+ */
+export async function listMyGroups(p: { user_id: string }): Promise<ListRow[]> {
+  const rows = await fetchall(
+    `SELECT g.group_id, CASE WHEN gs.revision = g.revision AND gs.version = $2 THEN gs.data END
+       FROM groups g LEFT JOIN group_summaries gs ON gs.group_id = g.group_id
+      WHERE g.deleted_at IS NULL AND EXISTS (SELECT 1 FROM members m WHERE m.group_id = g.group_id AND m.user_id = $1)
+      ORDER BY g.created_at DESC LIMIT 200`,
+    [p.user_id, SUMMARY_V],
+  );
+  const sums = new Map<string, GroupSummary>();
+  const stale: string[] = [];
+  for (const r of rows) {
+    const d = r[1] === null || r[1] === undefined ? null : ((typeof r[1] === "string" ? JSON.parse(r[1]) : r[1]) as GroupSummary);
+    if (d && d.users[p.user_id]) sums.set(String(r[0]), d);
+    else stale.push(String(r[0]));
+  }
+  if (stale.length) {
+    const states = await readGroups(stale);
+    const ids: string[] = [], revs: string[] = [], data: string[] = [];
+    for (const [id, s] of states) {
+      const sum = summaryOf(s, computeShared(s));
+      sums.set(id, sum);
+      ids.push(id); revs.push(s.group.revision); data.push(JSON.stringify(sum));
+    }
+    if (ids.length) await execute(_summarySql(1), [SUMMARY_V, ids, revs, data]);
+  }
+  const out: ListRow[] = [];
+  for (const r of rows) {
+    const sum = sums.get(String(r[0]));
+    const row = sum ? listRow(String(r[0]), sum, p.user_id) : null;
+    if (row) out.push(row);
   }
   return out;
-}
-
-function _lastActivity(s: GroupState): string {
-  let best = String(s.group.created_at);
-  let bestT = Date.parse(best) || 0;
-  const stamps = [...s.bills.map((b) => b.updated_at ?? b.created_at), ...s.payments.map((p) => p.created_at)];
-  for (const at of stamps) {
-    const tm = Date.parse(String(at));
-    if (tm > bestT) { bestT = tm; best = String(at); }
-  }
-  return best;
 }
 
 // ── groups ──────────────────────────────────────────────────────────────────
@@ -975,8 +1008,8 @@ export async function suggestRate(p: { user_id: string } & Params) {
   if (!isCurrency(currency) || !isCurrency(to) || currency === to) fail("currency_invalid");
   const date = p.effective && p.effective !== "-infinity" && isDate(String(p.effective)) ? String(p.effective) : null;
   const today = localDate(s.group.timezone);
-  const { fetchFxratesBest, bigSideFirst } = await import("../fx_providers");
-  const r = await fetchFxratesBest(currency, to, date && date < today ? date : null);
+  const { marketRate, bigSideFirst } = await import("../fx_providers");
+  const r = await marketRate(currency, to, date && date < today ? date : null);
   if (!r) fail("rate_unavailable", {}, 502);
   return bigSideFirst(r);
 }
@@ -993,21 +1026,32 @@ interface AutoRate { currency: string; effective: string; rate: string; inverted
  * then refuses as it always did (rate_needed / rate_missing).
  */
 async function _autoRatesFor(groupId: unknown, wants: { currency: unknown; date: unknown }[]): Promise<AutoRate[]> {
-  const s = await readGroup(String(groupId ?? ""));
+  const gid = String(groupId ?? "");
+  // Most saves are in the trip's own currency, or in a one-off (never rated):
+  // this instance's last copy of the group says so without a query. A copy
+  // stale after a currency change only skips the prefetch; the write then
+  // refuses as before and the page's rate/fill fills the gap.
+  const peek = peekGroup(gid);
+  if (peek && (peek.group.kind !== "travel" || wants.every((w) => normCurrency(w.currency ?? peek.group.currency) === peek.group.currency))) return [];
+  const s = await readGroup(gid);
   if (!s || s.group.kind !== "travel" || s.group.status !== "open") return [];
   const today = localDate(s.group.timezone);
-  const { fetchFxratesBest, bigSideFirst } = await import("../fx_providers");
-  const out: AutoRate[] = [];
+  const { marketRate, bigSideFirst } = await import("../fx_providers");
+  const asks: { currency: string; date: string; first: boolean }[] = [];
   for (const w of wants) {
     const currency = normCurrency(w.currency ?? s.group.currency);
     if (!isCurrency(currency) || currency === s.group.currency) continue;
     const date = isDate(String(w.date ?? "")) ? String(w.date) : today;
-    if (findRate(s.rates, currency, date) || out.some((a) => a.currency === currency)) continue;
-    const r = await fetchFxratesBest(currency, s.group.currency, date < today ? date : null);
-    if (!r) continue;
-    const first = !s.rates.some((x) => x.currency === currency);
-    out.push({ currency, effective: first ? "-infinity" : date, ...bigSideFirst(r) });
+    if (findRate(s.rates, currency, date) || asks.some((a) => a.currency === currency)) continue;
+    asks.push({ currency, date, first: !s.rates.some((x) => x.currency === currency) });
   }
+  // Every currency at once: each may be a provider round trip.
+  const got = await Promise.all(asks.map((a) => marketRate(a.currency, s.group.currency, a.date < today ? a.date : null)));
+  const out: AutoRate[] = [];
+  asks.forEach((a, i) => {
+    const r = got[i];
+    if (r !== null) out.push({ currency: a.currency, effective: a.first ? "-infinity" : a.date, ...bigSideFirst(r) });
+  });
   return out;
 }
 
@@ -1392,6 +1436,8 @@ export async function cleanup() {
     updates: await n("DELETE FROM telegram_updates WHERE received_at < NOW() - INTERVAL '7 days'"),
     pending: await n("DELETE FROM telegram_pending WHERE expires_at < NOW()"),
     ai_usage: await n("DELETE FROM ai_usage WHERE day < CURRENT_DATE - 60"),
+    // Market-rate cache: a day old is only a prefill; refetched if ever asked again.
+    fx_market: await n("DELETE FROM fx_market WHERE fetched_at < NOW() - INTERVAL '90 days'"),
     // "Add Bill" opens a one-off at once; one left before its bill was saved
     // (tab closed) holds no money, so it is hidden like a deleted split.
     empty_one_offs: await n(

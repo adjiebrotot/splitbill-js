@@ -29,13 +29,14 @@ function need(ctx: { user: User | null }): User {
 
 /**
  * A group write. The answer carries the group's fresh `view` (the one the
- * post-write gate computed), so the page redraws without a second request.
+ * post-write gate computed) and its home-list `row`, so the page redraws
+ * without a second request.
  */
 export async function answerWrite<T>(ctx: { user: User | null }, fn: (userId: string) => Promise<T>): Promise<Response> {
   const uid = need(ctx).user_id;
   const r = await A.run(() => A.withView(uid, () => fn(uid)));
   if (!r.ok) return answer(r);
-  return json({ ok: true, data: r.data.data, view: r.data.view });
+  return json({ ok: true, data: r.data.data, view: r.data.view, row: r.data.row });
 }
 
 const ROUTES: Record<string, Handler> = {
