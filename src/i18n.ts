@@ -95,7 +95,7 @@ export const STRINGS: Record<string, Entry> = {
   "home.new_trip": { en: "New Trip", id: "Perjalanan Baru" },
   "home.new_bill_name": { en: "New bill", id: "Tagihan baru" },
   "home.col_name": { en: "Name", id: "Nama" },
-  "home.col_spent": { en: "Spent", id: "Total" },
+  "home.col_spent": { en: "My spending", id: "Pengeluaranku" },
   "home.col_mine": { en: "My balance", id: "Saldoku" },
   "home.sort": { en: "Sort", id: "Urutkan" },
   "home.sort_new": { en: "Newest", id: "Terbaru" },

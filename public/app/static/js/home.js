@@ -54,7 +54,7 @@
         : '<span class="' + (net > 0n ? 'pos' : 'neg') + '">' + signedMoneyHtml(g.my_net, g.currency, g.dp) + '</span>';
       return '<tr class="row-link" data-id="' + esc(g.group_id) + '" tabindex="0">' +
         '<td>' + esc(g.name) + '<div class="tool-sub">' + esc(kind) + ' · ' + status + '</div></td>' +
-        '<td class="num">' + moneyHtml(g.spent, g.currency, g.dp) + '</td>' +
+        '<td class="num">' + (g.my_share == null ? '-' : moneyHtml(g.my_share, g.currency, g.dp)) + '</td>' +
         '<td class="num">' + netTxt + '</td></tr>';
     }).join('');
   }
