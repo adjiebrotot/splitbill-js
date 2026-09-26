@@ -29,7 +29,7 @@
     var miss = $('missing-banner');
     // A missing rate is fetched, not asked for; the banner is only for a
     // provider that could not answer.
-    if (!S.view.complete && S.view.missing.length && isOpen() && !S.offline && !S.filling) {
+    if (!S.view.complete && S.view.missing.length && isOpen() && !S.offline && !S.stale && !S.filling) {
       S.filling = true;
       miss.hidden = true;
       api('rate/fill', { body: { group_id: GID } }).then(function (r) {
@@ -272,14 +272,14 @@
   }
 
   // ── data ──
-  function setView(data, offline, at) {
+  function setView(data, offline, at, stale) {
     topbarSetUser(data.me);
     var b = $('offline-banner');
     if (offline) {
       b.textContent = t('offline.banner', fmtDate(new Date(at || Date.now()).toISOString()));
       b.hidden = false;
     } else b.hidden = true;
-    S.setView(data.group, data.me, offline);
+    S.setView(data.group, data.me, offline, stale);
   }
   // Every reload redraws the page; a reload is always live data.
   S.onView = function () {
@@ -407,6 +407,7 @@
       if (!yes) return;
       api('group/delete', { body: { group_id: GID } }).then(function (r) {
         if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+        S.forget(GID);
         location.href = '/app';
       });
     });
@@ -495,14 +496,12 @@
   });
 
   // ── boot ──
-  sbBoot().then(function (r) {
-    if (!r.ok) {
-      showToast(errMsg(r.code, r.params), 'error');
-      if (r.status === 404) setTimeout(function () { location.href = '/app'; }, 1200);
-      return;
-    }
-    S.ai = r.data.ai !== false;
-    setView(r.data, r.offline, r.at);
+  /* The page's first view: the add-bill hash, an empty one-off's editor, or
+     a draft from Telegram. Runs once, on the first view drawn. */
+  var started = false;
+  function start() {
+    if (started) return;
+    started = true;
     var addHash = location.hash === '#add-bill';
     if (addHash) history.replaceState(null, '', location.pathname);
     // An empty one-off only exists to take its bill: open the editor straight away.
@@ -520,6 +519,26 @@
         window.fillBillFromDraft(d.data);
       });
     }
+  }
+
+  /* Draw at once from the view this browser kept (a visit before, or home
+     warmed it), then again live. Nothing is fetched or written on the kept
+     copy (S.stale); the live one takes over within a request. */
+  var kept = window.sbBootCached && window.sbBootCached();
+  if (kept && kept.data && kept.data.group && kept.data.me) {
+    S.ai = kept.data.ai !== false;
+    setView(kept.data, false, kept.at, true);
+  }
+
+  sbBoot().then(function (r) {
+    if (!r.ok) {
+      showToast(errMsg(r.code, r.params), 'error');
+      if (r.status === 404) setTimeout(function () { location.href = '/app'; }, 1200);
+      return;
+    }
+    S.ai = r.data.ai !== false;
+    setView(r.data, r.offline, r.at);
+    start();
   });
 }());
 

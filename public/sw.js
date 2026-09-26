@@ -4,10 +4,13 @@
  *
  *   /app/api/*      never cached: money data is always live.
  *   /app/static/*   cache first (versioned, immutable).
- *   page loads      network first; offline, the page's cached shell, which
- *                   then renders its last boot payload from localStorage.
+ *   page loads      the page's cached shell, at once (it is precached
+ *                   with the scripts it loads, so both belong to this
+ *                   deploy; a deploy ships a new sw.js and CACHE). The page
+ *                   draws its last boot payload from localStorage, then the
+ *                   live one. Network only for a shell not cached yet.
  */
-const CACHE = 'sb-70ff7b80';
+const CACHE = 'sb-82fc60d3';
 const STATIC = [
   '/app/static/css/shared.min.css?v=782c1c14',
   '/app/static/assets/fonts/dm-sans-latin-wght-normal.woff2?v=9fea608a',
@@ -18,29 +21,29 @@ const STATIC = [
   '/app/static/assets/fonts/dm-mono-latin-ext-500-normal.woff2?v=8711f938',
   '/app/static/assets/icons.svg?v=17f4531f',
   '/app/static/js/i18n-all.js?v=c889fa2d',
-  '/app/static/js/boot.min.js?v=54359d3c',
+  '/app/static/js/boot.min.js?v=f305036e',
   '/app/static/js/engine.js?v=7c879c47',
   '/app/static/js/ui.min.js?v=57c20b9a',
   '/app/static/js/i18n.min.js?v=23384dda',
   '/app/static/js/topbar.min.js?v=901d34bd',
   '/app/static/js/currency.min.js?v=69826b20',
-  '/app/static/js/sb.min.js?v=487a00c9',
-  '/app/static/js/home.min.js?v=bbaaa1e5',
-  '/app/static/js/group.min.js?v=b3d6e063',
-  '/app/static/js/bill.min.js?v=cfff4427',
+  '/app/static/js/sb.min.js?v=ef0bd42a',
+  '/app/static/js/home.min.js?v=9b50c061',
+  '/app/static/js/group.min.js?v=218b4eaa',
+  '/app/static/js/bill.min.js?v=e4a5a4c2',
   '/app/static/js/settings.min.js?v=e966f9f7',
   '/app/static/js/join.min.js?v=0a643cc4',
   '/app/static/js/auth.min.js?v=b8c913fe',
   '/app/static/js/admin.min.js?v=2804245e',
   '/app/static/icons/icon-192.png?v=34543553',
-  '/app/static/pages/landing.html?v=021cce83',
-  '/app/static/pages/login.html?v=8c548e85',
-  '/app/static/pages/register.html?v=3df07415',
-  '/app/static/pages/home.html?v=a9b7178d',
-  '/app/static/pages/group.html?v=3d18d3b6',
-  '/app/static/pages/join.html?v=858e0799',
-  '/app/static/pages/settings.html?v=20dd237c',
-  '/app/static/pages/admin.html?v=3c813b6c',
+  '/app/static/pages/landing.html?v=6b23e11a',
+  '/app/static/pages/login.html?v=40b24fd6',
+  '/app/static/pages/register.html?v=12423de5',
+  '/app/static/pages/home.html?v=5efc498a',
+  '/app/static/pages/group.html?v=8f753126',
+  '/app/static/pages/join.html?v=c02a2207',
+  '/app/static/pages/settings.html?v=d3e983b0',
+  '/app/static/pages/admin.html?v=99cde722',
 ];
 
 /* Which shell a pretty URL is served from (mirrors next.config.mjs rewrites). */
@@ -92,9 +95,9 @@ self.addEventListener('fetch', function (e) {
   if (req.mode === 'navigate') {
     var shell = shellFor(url.pathname);
     if (!shell) return;
-    e.respondWith(fetch(req).catch(function () {
-      return caches.match(shell, { ignoreSearch: true }).then(function (hit) {
-        return hit || new Response('Offline', { status: 503, headers: { 'content-type': 'text/plain' } });
+    e.respondWith(caches.match(shell, { ignoreSearch: true, cacheName: CACHE }).then(function (hit) {
+      return hit || fetch(req).catch(function () {
+        return new Response('Offline', { status: 503, headers: { 'content-type': 'text/plain' } });
       });
     }));
   }

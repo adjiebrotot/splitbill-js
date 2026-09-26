@@ -105,7 +105,17 @@ const ROUTES: Record<string, Handler> = {
 
   // ── groups ──
   "GET groups": async (_req, ctx) => answer(await A.run(() => A.listMyGroups({ user_id: need(ctx).user_id }))),
-  "POST groups": async (_req, ctx) => answer(await A.run(() => A.createGroup({ ...ctx.body, user_id: need(ctx).user_id }))),
+  // `view: true` (home's one-off, whose bill is already open) also answers the
+  // new split's view, so the page needs no second request.
+  "POST groups": async (_req, ctx) => {
+    const uid = need(ctx).user_id;
+    const r = await A.run(async () => {
+      const g = await A.createGroup({ ...ctx.body, user_id: uid });
+      return { data: g, view: ctx.body.view === true ? await A.getGroupView({ user_id: uid, group_id: g.group_id }) : undefined };
+    });
+    if (!r.ok) return answer(r);
+    return json({ ok: true, data: r.data.data, view: r.data.view });
+  },
   "GET group": async (_req, ctx) => answer(await A.run(() => A.getGroupView({ user_id: need(ctx).user_id, group_id: ctx.qp.get("id") }))),
   "POST group/rename": async (_req, ctx) => answerWrite(ctx, (uid) => A.renameGroup({ ...ctx.body, user_id: uid })),
   "POST group/delete": async (_req, ctx) => answer(await A.run(() => A.deleteGroup({ ...ctx.body, user_id: need(ctx).user_id }))),

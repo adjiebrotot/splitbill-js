@@ -10,6 +10,10 @@
  *      rest of the page's JS. window.sbBoot() resolves it.
  *   4. Offline: fall back to the last boot payload this browser saw for the
  *      same page, flagged `offline` so the page disables every write.
+ *   5. Instant paint: window.sbBootCached() hands the page that same last
+ *      payload at once, so it draws before the network answers; sbBoot()
+ *      then redraws it live. Home warms the payloads of the splits it links
+ *      to (sbCachePut), so opening one draws straight away too.
  *
  * The hint cookies grant nothing; the API checks the signed session on every
  * call and answers 401, which also lands on login.
@@ -36,6 +40,18 @@
     return;
   }
 
+  var PREFIX = 'sb_boot:';
+  function clearData() {
+    try {
+      for (var i = localStorage.length - 1; i >= 0; i--) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(PREFIX) === 0) localStorage.removeItem(k);
+      }
+    } catch (e) {}
+  }
+  // Signed out: whatever this browser kept belongs to the last account.
+  if (!signedIn) clearData();
+
   var lang = cookie('sb_lang');
   // The admin console is English only (its labels are not i18n keys).
   if (PAGE === 'admin') lang = 'en';
@@ -52,7 +68,30 @@
   var m;
   if (PAGE === 'group' && (m = location.pathname.match(/^\/app\/g\/([A-Za-z0-9]{4,16})/))) qs = '&id=' + m[1];
   if (PAGE === 'join' && (m = location.pathname.match(/^\/app\/join\/([A-Za-z0-9]{4,32})/))) qs = '&code=' + m[1];
-  var KEY = 'sb_boot:' + PAGE + qs;
+  var KEY = PREFIX + PAGE + qs;
+
+  function readCache(key) {
+    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+  }
+  /* Keep a page's payload for its next instant paint (and offline). `data`
+     may be a function of the payload kept so far (null when none). */
+  window.sbCachePut = function (key, data) {
+    try {
+      if (typeof data === 'function') {
+        var c = readCache(PREFIX + key);
+        data = data(c ? c.data : null);
+        if (!data) return;
+      }
+      localStorage.setItem(PREFIX + key, JSON.stringify({ at: Date.now(), data: data }));
+    } catch (e) {}
+  };
+  window.sbCacheGet = function (key) {
+    var c = readCache(PREFIX + key);
+    return c ? c.data : null;
+  };
+  /* The last payload for this page, read once before the network answers. */
+  var _cached = AUTH ? readCache(KEY) : null;
+  window.sbBootCached = function () { return _cached && _cached.data ? { ok: true, data: _cached.data, at: _cached.at, cached: true } : null; };
 
   window.sbBoot = function () { return _boot; };
   var _boot = !AUTH ? Promise.resolve({ ok: true, data: null }) :
@@ -65,27 +104,22 @@
         return r.json().then(function (j) {
           if (j && j.ok) {
             try { localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), data: j.data })); } catch (e) {}
+          } else if (r.status === 404) {
+            try { localStorage.removeItem(KEY); } catch (e) {}
           }
           j.status = r.status;
           return j;
         });
       })
       .catch(function () {
-        try {
-          var c = JSON.parse(localStorage.getItem(KEY) || 'null');
-          if (c) return { ok: true, data: c.data, offline: true, at: c.at };
-        } catch (e) {}
+        var c = readCache(KEY);
+        if (c) return { ok: true, data: c.data, offline: true, at: c.at };
         return { ok: false, code: 'offline', params: {}, offline: true };
       });
 
   /* Offline cache belongs to the account that wrote it. */
   window.sbClearCache = function () {
-    try {
-      for (var i = localStorage.length - 1; i >= 0; i--) {
-        var k = localStorage.key(i);
-        if (k && k.indexOf('sb_boot:') === 0) localStorage.removeItem(k);
-      }
-    } catch (e) {}
+    clearData();
     try { if (window.caches) caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); }); } catch (e) {}
   };
 
