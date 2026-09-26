@@ -165,9 +165,13 @@ export async function listMyGroups(p: { user_id: string }) {
       currency: s.group.currency,
       dp: s.group.dp,
       status: s.group.status,
+      // Can this viewer still add bills here (the home page's trip shortcuts)?
+      active: me.active,
       members: s.members.filter((m) => m.active).length,
       bills: s.bills.length,
       spent: c.spent,
+      // The viewer's own spending: their share of every bill, not what they paid.
+      my_share: c.balances.find((b) => b.id === me.id)?.share ?? 0n,
       my_net: c.balances.find((b) => b.id === me.id)?.net ?? 0n,
       // Payments still owed (a finalised trip's balances equal its unpaid transfers).
       owed: c.transfers.length,

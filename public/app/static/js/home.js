@@ -54,10 +54,30 @@
         : '<span class="' + (net > 0n ? 'pos' : 'neg') + '">' + signedMoneyHtml(g.my_net, g.currency, g.dp) + '</span>';
       return '<tr class="row-link" data-id="' + esc(g.group_id) + '" tabindex="0">' +
         '<td>' + esc(g.name) + '<div class="tool-sub">' + esc(kind) + ' · ' + status + '</div></td>' +
-        '<td class="num">' + moneyHtml(g.spent, g.currency, g.dp) + '</td>' +
+        '<td class="num">' + (g.my_share == null ? '-' : moneyHtml(g.my_share, g.currency, g.dp)) + '</td>' +
         '<td class="num">' + netTxt + '</td></tr>';
     }).join('');
   }
+
+  /* Add Bill straight into the newest open trips, above Split One Bill. */
+  var TRIP_MAX = 3;
+  function renderTripBills(all) {
+    var box = document.getElementById('trip-bills');
+    if (OFFLINE) { box.innerHTML = ''; return; }
+    var trips = all.filter(function (g) {
+      return g.kind === 'travel' && g.status === 'open' && g.active !== false;
+    }).sort(function (a, b) {
+      return (Date.parse(b.last_at || b.created_at) || 0) - (Date.parse(a.last_at || a.created_at) || 0);
+    }).slice(0, TRIP_MAX);
+    box.innerHTML = trips.map(function (g) {
+      return '<button type="button" class="btn btn-primary btn-full page-action" data-id="' + esc(g.group_id) + '">' +
+        icon('plus') + ' <span>' + esc(t('bill.add_for', g.name)) + '</span></button>';
+    }).join('');
+  }
+  document.getElementById('trip-bills').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button[data-id]');
+    if (b) location.href = '/app/g/' + b.getAttribute('data-id') + '#add-bill';
+  });
 
   function open(ev) {
     var tr = ev.target.closest('tr[data-id]');
@@ -70,7 +90,8 @@
   function showVerify(me) {
     var card = document.getElementById('verify-card');
     if (!me.email || me.email_verified) { card.hidden = true; return; }
-    try { card.open = localStorage.getItem('sb_verify_folded') !== '1'; } catch (e) { /* storage off */ }
+    // Folded unless the viewer opened it before.
+    try { card.open = localStorage.getItem('sb_verify_folded') === '0'; } catch (e) { /* storage off */ }
     card.hidden = false;
     document.getElementById('verify-desc').textContent = t('verify.desc', me.email);
   }
@@ -188,5 +209,6 @@
     showVerify(ME);
     GROUPS = r.data.groups || [];
     renderList(GROUPS);
+    renderTripBills(GROUPS);
   });
 }());

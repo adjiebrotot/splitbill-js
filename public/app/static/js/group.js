@@ -83,6 +83,8 @@
     } else miss.hidden = true;
 
     $('btn-add-bill').hidden = !S.canAddBill();
+    // A trip names itself on the button, so it is clear where the bill goes.
+    $('add-bill-label').textContent = isTravel() ? t('bill.add_for', g.name) : t('bill.add');
     $('btn-rates').hidden = !isTravel();
     $('btn-manage').hidden = !owner;
     renderBills();

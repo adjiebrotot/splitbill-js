@@ -17,6 +17,7 @@ const list = (dir: string) => readdirSync(path.join(ROOT, dir)).map((f) => path.
 const SAME_OK = new Set([
   "app.name", "auth.email", "tg.title", "bill.item", "adj.tip", "bill.col_total", "bill.total",
   "bal.title", "rpt.balances", "bal.net", "rpt.col_net", "home.sort_az", "status.final", "rpt.final",
+  "bill.view", "bill.col_what",
 ]);
 
 describe("i18n", () => {
@@ -31,6 +32,12 @@ describe("i18n", () => {
   it("no em dash in any user-facing string", () => {
     for (const [k, v] of Object.entries(STRINGS)) {
       expect(v.en.includes("—") || v.id.includes("—"), k).toBe(false);
+    }
+  });
+
+  it("keeps Bill as Bill in Indonesian, never Tagihan", () => {
+    for (const [k, v] of Object.entries(STRINGS)) {
+      expect(/tagihan/i.test(v.id), k).toBe(false);
     }
   });
 
