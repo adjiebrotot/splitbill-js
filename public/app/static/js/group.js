@@ -131,6 +131,17 @@
     return rows.slice((PAGE[key] - 1) * SIZE[key], PAGE[key] * SIZE[key]);
   }
 
+  /* Beside a bill's name: its photo is kept; its scan read another total. */
+  function proofMarks(b) {
+    var out = '';
+    if (b.receipt) out += ' <span class="proof-mark" title="' + esc(t('bill.has_receipt')) + '" aria-label="' + esc(t('bill.has_receipt')) + '">' + icon('receipt') + '</span>';
+    if (S.scanDiff(b)) {
+      var sc = b.scan;
+      out += ' <span class="chip chip-warn">' + esc(t('bill.scan_diff', money(sc.total, sc.currency, SBEngine.minorUnits(sc.currency)))) + '</span>';
+    }
+    return out;
+  }
+
   /* A row opens its bill: the editor when you may change it, else read-only. */
   function renderBills() {
     var v = S.view;
@@ -153,7 +164,7 @@
       var conv = foreign && b.converted != null ? '<div class="tool-sub">' + gmoneyHtml(b.converted) + '</div>' : '';
       var mineConv = foreign && sh && sh[1] != null ? '<div class="tool-sub">' + gmoneyHtml(sh[1]) + '</div>' : '';
       var err = b.error ? '<div class="tool-sub neg">' + esc(errMsg(b.error.code, b.error.params)) + '</div>' : '';
-      return '<tr class="row-link" tabindex="0" data-bill="' + esc(b.id) + '"><td>' + esc(b.description) +
+      return '<tr class="row-link" tabindex="0" data-bill="' + esc(b.id) + '"><td>' + esc(b.description) + proofMarks(b) +
         '<div class="tool-sub who-av">' + S.avatar(b.payer, 'sm') + '<span>' + esc(fmtDate(b.date)) + ' · ' + esc(t('bill.paid_by_x', nameOf(b.payer))) + '</span></div>' + err + '</td>' +
         '<td class="num">' + moneyHtml(b.total, b.currency, b.dp) + conv + '</td>' +
         '<td class="num">' + (mine == null ? '<span class="muted">-</span>' : moneyHtml(mine, b.currency, b.dp) + mineConv) + '</td></tr>';
@@ -178,7 +189,7 @@
     setTableEmpty(wrap, '');
     wrap.hidden = false;
     var canEdit = S.canEditBill(b);
-    $('bill-one-title').textContent = b.description;
+    $('bill-one-title').innerHTML = esc(b.description) + proofMarks(b);
     $('bill-one-actions').innerHTML = '<button type="button" class="btn btn-ghost btn-compact btn-icon" data-bill-open="' + esc(b.id) + '" aria-label="' +
       esc(t(canEdit ? 'bill.edit' : 'bill.view')) + '">' + icon(canEdit ? 'pencil' : 'eye') + '</button>';
     $('bill-one-meta').innerHTML = S.avatar(b.payer, 'sm') + '<span>' + esc(fmtDate(b.date) + ' · ' + t('bill.paid_by_x', nameOf(b.payer))) + '</span>';
@@ -264,7 +275,7 @@
     var edit = v.is_owner && !S.offline && isOpen();
     $('rates-body').innerHTML = v.rates.map(function (r) {
       return '<tr><td>' + esc(fmtDate(r.effective)) + '</td>' +
-        '<td class="mono">' + esc(rateText(r)) + (r.source === 'auto' ? ' <span class="chip chip-muted">' + esc(t('rate.auto')) + '</span>' : '') + '</td>' +
+        '<td class="mono">' + esc(rateText(r)) + (r.source === 'auto' ? ' <span class="chip chip-muted">' + esc(t('rate.auto')) + '</span>' : '') + S.marketChip(r) + '</td>' +
         '<td class="act">' + (edit ? '<div class="tool-row-actions">' +
           '<button type="button" class="btn btn-ghost btn-compact btn-icon" data-redit="' + esc(r.currency + '|' + r.effective) + '" aria-label="' + esc(t('common.edit')) + '">' + icon('pencil') + '</button>' +
           '<button type="button" class="btn btn-danger btn-compact btn-icon" data-rdel="' + esc(r.currency + '|' + r.effective) + '" aria-label="' + esc(t('common.delete')) + '">' + icon('trash') + '</button></div>' : '') + '</td></tr>';
@@ -370,6 +381,32 @@
   $('btn-add-payment').addEventListener('click', function () { openPayment(); });
   $('btn-add-rate').addEventListener('click', function () { if (window.openRate) window.openRate(); });
   $('btn-rates').addEventListener('click', function () { openModal('modal-rates'); });
+
+  // ── activity: every change, newest first, 30 at a time ──
+  var ACT = { rows: [], more: false, busy: false };
+  function loadActivity(reset) {
+    if (ACT.busy) return;
+    if (reset) ACT = { rows: [], more: false, busy: false };
+    ACT.busy = true;
+    var last = ACT.rows.length ? ACT.rows[ACT.rows.length - 1].id : '';
+    var btn = $('act-more');
+    setBusy(btn, true);
+    api('activity?group_id=' + encodeURIComponent(GID) + (last ? '&before=' + encodeURIComponent(last) : '')).then(function (r) {
+      ACT.busy = false;
+      setBusy(btn, false);
+      if (!r.ok) return showToast(errMsg(r.code, r.params), 'error');
+      ACT.rows = ACT.rows.concat(r.data.rows);
+      ACT.more = r.data.more;
+      $('act-body').innerHTML = S.activityRows(ACT.rows);
+      setTableEmpty($('act-wrap'), ACT.rows.length ? '' : t('act.empty'));
+      btn.hidden = !ACT.more;
+    });
+  }
+  $('btn-activity').addEventListener('click', function () {
+    openModal('modal-activity');
+    loadActivity(true);
+  });
+  $('act-more').addEventListener('click', function () { loadActivity(false); });
   $('btn-details').addEventListener('click', function () { openModal('modal-details'); });
   $('btn-manage').addEventListener('click', function () { openModal('modal-manage'); });
 
