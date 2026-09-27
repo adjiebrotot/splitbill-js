@@ -15,6 +15,18 @@ if (URL) {
   process.env.SETUP_SECRET = process.env.SETUP_SECRET || "test-secret";
 }
 
+// A receipt photo "reads" as a fixed receipt: the real draft code, no model.
+vi.mock("@/services/ai_parse", async (orig) => {
+  const real = await orig<typeof import("@/services/ai_parse")>();
+  return {
+    ...real,
+    parseReceipt: vi.fn(async (_img: unknown, _caption: string, ctx: import("@/services/ai_parse").ParseCtx, source: "photo" | "telegram" = "photo") => {
+      const rec = { merchant: "Warung", currency: ctx.currency, date: null, items: [{ name: "Nasi", qty: 1, amount: "30000" }, { name: "Teh", qty: 1, amount: "10000" }], total: "40000" };
+      return { draft: real.draftFromReceipt(rec, null, ctx, source), usage: [], raw: null };
+    }),
+  };
+});
+
 describe.skipIf(!URL)("actions against Postgres", () => {
   let A: typeof import("@/services/actions");
   let U: typeof import("@/services/user_service");
@@ -567,5 +579,179 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     const n = f.mock.calls.length;
     expect(await fx.marketRate("CHF", "SGD", "2026-08-02")).toBeNull();
     expect(f.mock.calls.length).toBe(n);
+  });
+  it("trip bills: the payer and the writer change them; the owner speaks only for a payer without an account", async () => {
+    const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Lombok", currency: "IDR", members: [{ name: "Dee" }] });
+    let v = await view(g.group_id);
+    await A.joinByInvite({ user_id: uid.bob, code: v.group.invite_code! });
+    await A.joinByInvite({ user_id: uid.cal, code: v.group.invite_code! });
+    v = await view(g.group_id);
+    const [ali, bob, cal, dee] = ["Ali", "Bob", "Cal", "Dee"].map((n) => memberId(v, n));
+    const bill = (payer: string, total = "90000") => ({ group_id: g.group_id, description: "Boat", date: "2026-09-03", mode: "even", payer, total,
+      participants: [{ member: ali }, { member: bob }, { member: cal }] });
+    const latest = async (d: string) => (await view(g.group_id)).bills.find((b) => b.description === d)!;
+
+    // Bob paid and wrote it: the owner can neither rewrite nor delete what Bob says he paid.
+    await A.saveBill({ user_id: uid.bob, ...bill(bob) });
+    let b = await latest("Boat");
+    expect(await A.run(() => A.saveBill({ user_id: uid.ali, ...bill(bob, "1000"), bill_id: b.id, version: b.version }))).toMatchObject({ ok: false, code: "bill_edit_forbidden" });
+    expect(await A.run(() => A.deleteBill({ user_id: uid.ali, group_id: g.group_id, bill_id: b.id }))).toMatchObject({ ok: false, code: "bill_edit_forbidden" });
+    expect(await A.run(() => A.deleteBill({ user_id: uid.cal, group_id: g.group_id, bill_id: b.id }))).toMatchObject({ ok: false, code: "bill_edit_forbidden" });
+
+    // Cal wrote a bill Bob paid: Bob may change it, Cal may fix it but not move who paid.
+    await A.saveBill({ user_id: uid.cal, ...bill(bob), description: "Fuel" });
+    b = await latest("Fuel");
+    expect(await A.run(() => A.saveBill({ user_id: uid.cal, ...bill(cal), description: "Fuel", bill_id: b.id, version: b.version }))).toMatchObject({ ok: false, code: "bill_payer_locked" });
+    expect((await A.run(() => A.saveBill({ user_id: uid.cal, ...bill(bob, "60000"), description: "Fuel", bill_id: b.id, version: b.version }))).ok).toBe(true);
+    b = await latest("Fuel");
+    expect((await A.run(() => A.saveBill({ user_id: uid.bob, ...bill(cal), description: "Fuel", bill_id: b.id, version: b.version }))).ok).toBe(true);
+    b = await latest("Fuel");
+    expect(b.payer).toBe(cal);
+
+    // Dee has no account: the owner speaks for her, and so does whoever wrote it.
+    await A.saveBill({ user_id: uid.bob, ...bill(dee), description: "Snorkel" });
+    b = await latest("Snorkel");
+    expect((await A.run(() => A.saveBill({ user_id: uid.ali, ...bill(dee, "45000"), description: "Snorkel", bill_id: b.id, version: b.version }))).ok).toBe(true);
+    expect(await A.run(() => A.deleteBill({ user_id: uid.cal, group_id: g.group_id, bill_id: b.id }))).toMatchObject({ ok: false, code: "bill_edit_forbidden" });
+    expect((await A.run(() => A.deleteBill({ user_id: uid.ali, group_id: g.group_id, bill_id: b.id }))).ok).toBe(true);
+
+    // The owner still edits a bill the owner paid.
+    await A.saveBill({ user_id: uid.bob, ...bill(ali), description: "Villa" });
+    b = await latest("Villa");
+    expect((await A.run(() => A.saveBill({ user_id: uid.ali, ...bill(ali, "120000"), description: "Villa", bill_id: b.id, version: b.version }))).ok).toBe(true);
+    v = await view(g.group_id);
+    expect(v.balances.reduce((a, x) => a + x.net, 0n)).toBe(0n);
+  });
+
+  it("receipts: kept normalised, shown to members only, attached once; a scan flags a changed total; loose ones are pruned", async () => {
+    const { _setReceiptStore } = await import("@/services/receipt");
+    const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+    const files = new Map<string, Uint8Array>();
+    const deleted: string[] = [];
+    let n = 0;
+    _setReceiptStore({
+      put: async (path, bytes) => { const url = `https://blob.test/${path}?${++n}`; files.set(url, bytes); return url; },
+      get: async (url) => files.get(url) ?? null,
+      del: async (url) => { deleted.push(url); files.delete(url); },
+    });
+    try {
+      await user("dan");
+      const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Proof", currency: "IDR", members: [{ username: "bob" }] });
+      const other = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Else", currency: "IDR", members: [] });
+      let v = await view(g.group_id);
+      const [ali, bob] = ["Ali", "Bob"].map((x) => memberId(v, x));
+      const png = new Uint8Array(createCanvas(3000, 2000).toBuffer("image/png"));
+
+      // A form upload: redrawn inside the AI's pixel budget, as WebP.
+      const up = await A.uploadReceipt({ user_id: uid.bob, group_id: g.group_id, bytes: png, mime: "image/png" });
+      const stored = [...files.values()][0];
+      const img = await loadImage(Buffer.from(stored));
+      expect(img.width * img.height).toBeLessThanOrEqual(1_200_000);
+      expect(Math.max(img.width, img.height)).toBeLessThanOrEqual(1600);
+      expect(String.fromCharCode(...stored.slice(8, 12))).toBe("WEBP");
+      expect(await A.run(() => A.uploadReceipt({ user_id: uid.dan, group_id: g.group_id, bytes: png, mime: "image/png" }))).toMatchObject({ ok: false, code: "group_not_found" });
+      expect(await A.run(() => A.uploadReceipt({ user_id: uid.bob, group_id: g.group_id, bytes: new TextEncoder().encode("nope"), mime: "image/png" }))).toMatchObject({ ok: false, code: "image_invalid" });
+
+      const base = { group_id: g.group_id, date: "2026-09-04", mode: "even", payer: bob, total: "40000", participants: [{ member: ali }, { member: bob }] };
+      await A.saveBill({ user_id: uid.bob, ...base, description: "Dinner", receipt_id: up.receipt_id });
+      v = await view(g.group_id);
+      let dinner = v.bills.find((b) => b.description === "Dinner")!;
+      expect(dinner.receipt).toBe(up.receipt_id);
+      expect(dinner.scan).toBeNull();
+
+      // Members see the photo; nobody else does; a photo is one bill's, in one split.
+      expect((await A.getReceipt({ user_id: uid.ali, group_id: g.group_id, receipt_id: up.receipt_id })).bytes).toEqual(stored);
+      expect(await A.run(() => A.getReceipt({ user_id: uid.dan, group_id: g.group_id, receipt_id: up.receipt_id }))).toMatchObject({ ok: false, code: "group_not_found" });
+      expect(await A.run(() => A.getReceipt({ user_id: uid.ali, group_id: other.group_id, receipt_id: up.receipt_id }))).toMatchObject({ ok: false, code: "receipt_not_found" });
+      expect(await A.run(() => A.saveBill({ user_id: uid.bob, ...base, description: "Again", receipt_id: up.receipt_id }))).toMatchObject({ ok: false, code: "receipt_not_found" });
+      const elsewhere = await A.uploadReceipt({ user_id: uid.ali, group_id: other.group_id, bytes: png, mime: "image/png" });
+      expect(await A.run(() => A.saveBill({ user_id: uid.bob, ...base, description: "Again", receipt_id: elsewhere.receipt_id }))).toMatchObject({ ok: false, code: "receipt_not_found" });
+
+      // An edit that does not name the photo keeps it; null takes it off, the file stays for the history.
+      await A.saveBill({ user_id: uid.bob, ...base, total: "41000", description: "Dinner", bill_id: dinner.id, version: dinner.version });
+      dinner = (await view(g.group_id)).bills.find((b) => b.description === "Dinner")!;
+      expect(dinner.receipt).toBe(up.receipt_id);
+      await A.saveBill({ user_id: uid.bob, ...base, description: "Dinner", bill_id: dinner.id, version: dinner.version, receipt_id: null });
+      dinner = (await view(g.group_id)).bills.find((b) => b.description === "Dinner")!;
+      expect(dinner.receipt).toBeNull();
+      expect((await A.getReceipt({ user_id: uid.ali, group_id: g.group_id, receipt_id: up.receipt_id })).bytes).toEqual(stored);
+
+      // A scanned photo rides the draft into the bill, with the total the scan read.
+      const d = await A.aiDraftFromImage({ user_id: uid.bob, group_id: g.group_id, bytes: png, mime: "image/png" });
+      expect(d.receipt_id).toBeTruthy();
+      await A.saveDraftAsBill({ user_id: uid.bob, draft_id: d.draft_id });
+      let warung = (await view(g.group_id)).bills.find((b) => b.description === "Warung")!;
+      expect(warung.receipt).toBe(d.receipt_id);
+      expect(warung.scan).toEqual({ total: "40000", currency: "IDR" });
+      expect(warung.total).toBe("40000");
+      // Raised by hand after the scan: the bill still carries what the photo said.
+      await A.saveBill({ user_id: uid.bob, group_id: g.group_id, bill_id: warung.id, version: warung.version, description: "Warung", date: warung.date,
+        mode: "even", payer: bob, total: "55000", participants: [{ member: ali }, { member: bob }] });
+      warung = (await view(g.group_id)).bills.find((b) => b.description === "Warung")!;
+      expect([warung.total, warung.scan?.total]).toEqual(["55000", "40000"]);
+
+      // The bill's story: who changed what, oldest first.
+      const h = await A.groupActivity({ user_id: uid.ali, group_id: g.group_id, bill_id: dinner.id });
+      expect(h.rows.map((r) => r.kind)).toEqual(["bill.create", "bill.edit", "bill.edit"]);
+      expect(h.rows[0]).toMatchObject({ by: bob, subject: "Dinner", receipt: up.receipt_id, money: { amount: "40000", currency: "IDR", dp: 0 } });
+      expect(h.rows[1].changes).toEqual([{ field: "total", from: "40000", to: "41000", from_currency: "IDR", currency: "IDR" }]);
+      expect(h.rows[2].changes).toEqual([
+        { field: "total", from: "41000", to: "40000", from_currency: "IDR", currency: "IDR" },
+        { field: "receipt", from: up.receipt_id, to: null },
+      ]);
+      const w = await A.groupActivity({ user_id: uid.ali, group_id: g.group_id, bill_id: warung.id });
+      expect(w.rows[1].changes).toEqual([
+        { field: "total", from: "40000", to: "55000", from_currency: "IDR", currency: "IDR" },
+        { field: "split", from: null, to: null }, // by item, now evenly
+      ]);
+      expect(await A.run(() => A.groupActivity({ user_id: uid.dan, group_id: g.group_id }))).toMatchObject({ ok: false, code: "group_not_found" });
+
+      // The split's feed, newest first, a page at a time.
+      const feed = await A.groupActivity({ user_id: uid.bob, group_id: g.group_id });
+      expect(feed.rows[0]).toMatchObject({ kind: "bill.edit", subject: "Warung" });
+      expect(feed.rows.at(-1)!.kind).toBe("group.create");
+      expect(feed.more).toBe(false);
+
+      // Photos no bill took are gone after a day; kept ones (even replaced) stay.
+      await db.execute("UPDATE receipts SET created_at = NOW() - INTERVAL '2 days'");
+      const before = files.size;
+      expect((await A.cleanup()).receipts).toBe(1); // the one picked in "Else"; Dan's was refused before it was stored
+      expect(files.size).toBe(before - 1);
+      expect((await A.getReceipt({ user_id: uid.ali, group_id: g.group_id, receipt_id: up.receipt_id })).bytes).toEqual(stored);
+
+      // No Blob store: a scan still reads, it just keeps no photo.
+      _setReceiptStore(null);
+      const saved = process.env.BLOB_READ_WRITE_TOKEN;
+      delete process.env.BLOB_READ_WRITE_TOKEN;
+      expect((await A.aiDraftFromImage({ user_id: uid.bob, group_id: g.group_id, bytes: png, mime: "image/png" })).receipt_id).toBeNull();
+      expect(await A.run(() => A.uploadReceipt({ user_id: uid.bob, group_id: g.group_id, bytes: png, mime: "image/png" }))).toMatchObject({ ok: false, code: "receipt_unavailable" });
+      if (saved !== undefined) process.env.BLOB_READ_WRITE_TOKEN = saved;
+    } finally {
+      _setReceiptStore(null);
+    }
+  });
+
+  it("rates: the market rate is kept beside a custom one; the feed shows it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const base = /base=([A-Z]{3})/.exec(url)![1];
+      const rates: Record<string, Record<string, number>> = { USD: { IDR: 16000, EUR: 0.9 }, EUR: { IDR: 17800 } };
+      return { json: async () => ({ success: true, rates: rates[base] ?? {} }) } as Response;
+    }));
+    (await import("@/fx_providers"))._resetFxCache();
+    try {
+      const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "Market", currency: "IDR", members: [] });
+      await A.setRate({ user_id: uid.ali, group_id: g.group_id, currency: "USD", effective: "-infinity", rate: "17000" });
+      let v = await view(g.group_id);
+      expect(v.rates).toMatchObject([{ currency: "USD", rate: "17000", source: "manual", market: "16000" }]);
+      const feed = await A.groupActivity({ user_id: uid.ali, group_id: g.group_id });
+      expect(feed.rows[0]).toMatchObject({ kind: "rate.set", subject: "USD", rate: { rate: "17000", market: "16000", source: "manual" } });
+
+      // A new settlement currency: each rate row is compared with the market into it.
+      await A.changeCurrency({ user_id: uid.ali, group_id: g.group_id, currency: "EUR", rates: [{ currency: "USD", effective: "-infinity", rate: "0.5" }] });
+      v = await view(g.group_id);
+      expect(v.rates).toMatchObject([{ currency: "USD", market: "0.9" }]);
+    } finally {
+      offline();
+    }
   });
 });

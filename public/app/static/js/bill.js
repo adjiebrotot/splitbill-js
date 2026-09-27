@@ -68,7 +68,7 @@
               '<input type="text" id="bill-desc" maxlength="120" required>' +
             '</div>' +
             '<div class="field">' +
-              '<label data-i18n="bill.payer">Paid by</label>' +
+              '<label><span data-i18n="bill.payer">Paid by</span> <span class="tooltip-icon" tabindex="0" id="payer-lock" hidden>?</span></label>' +
               '<div class="chips" id="payer-chips" role="radiogroup"></div>' +
             '</div>' +
             '<div class="assist-tabs" role="tablist" id="mode-tabs">' +
@@ -97,6 +97,12 @@
                 '<button type="button" class="btn btn-ghost btn-compact" data-adj="discount">+ <span data-i18n="adj.discount">Discount</span></button>' +
               '</div>' +
             '</div>' +
+            // The photo behind the numbers: kept with the bill, shown to members.
+            '<div class="field" id="receipt-field">' +
+              '<label data-i18n="bill.receipt">Receipt photo</label>' +
+              '<div class="receipt-box" id="receipt-box"></div>' +
+              '<input type="file" id="receipt-file" accept="image/*" hidden>' +
+            '</div>' +
             // Rarely changed: today, the split's currency, no receipt total.
             '<details class="more" id="bill-more">' +
               '<summary><span id="bill-more-sum"></span> ' + icon('chevron-down') + '</summary>' +
@@ -119,6 +125,10 @@
             '</details>' +
             '<div class="reconcile" id="reconcile"></div>' +
             '<div class="preview" id="preview"></div>' +
+            '<details class="more" id="bill-history" hidden>' +
+              '<summary><span data-i18n="bill.history">History</span> ' + icon('chevron-down') + '</summary>' +
+              '<div class="tool-tbl-wrap" id="bill-history-wrap"><table class="tool-tbl"><tbody id="bill-history-body"></tbody></table></div>' +
+            '</details>' +
           '</div>' +
         '</div>' +
         '<div class="modal-actions" id="bill-actions">' +
@@ -190,10 +200,53 @@
 
   // ── render the editable parts ──
   function renderPayer() {
+    // What someone with an account says they paid stays theirs (actions.ts saveBill).
+    var locked = B.payerLocked && !B.readOnly;
+    var lock = $('payer-lock');
+    lock.hidden = !locked;
+    if (locked) lock.setAttribute('data-tip', t('bill.payer_locked', S.nameOf(B.orig.payer)));
     $('payer-chips').innerHTML = pickable().map(function (m) {
       var on = m.id === B.payer;
-      return '<button type="button" class="mchip mchip-av pay-chip" role="radio" aria-checked="' + on + '" aria-pressed="' + on + '" data-m="' + esc(m.id) + '"' + chipName(m) + dis() + '>' + chipFace(m) + '</button>';
-    }).join('') + plusChip('payer');
+      return '<button type="button" class="mchip mchip-av pay-chip" role="radio" aria-checked="' + on + '" aria-pressed="' + on + '" data-m="' + esc(m.id) + '"' + chipName(m) + (locked ? ' disabled' : dis()) + '>' + chipFace(m) + '</button>';
+    }).join('') + (locked ? '' : plusChip('payer'));
+  }
+
+  /* The photo: a thumbnail that opens it full size, and (when the bill is
+     yours to change) add / change / remove. A saved bill whose total moved
+     away from what its scan read says so. */
+  function renderReceipt() {
+    var edit = !B.readOnly;
+    var box = $('receipt-box');
+    var html = '';
+    if (B.orig && S.scanDiff(B.orig) && B.orig.receipt === B.receipt) {
+      var sc = B.orig.scan, d = E.minorUnits(sc.currency);
+      var tip = t('bill.scan_diff_tip', money(sc.total, sc.currency, d), money(B.orig.total, B.orig.currency, B.orig.dp));
+      html += '<div><span class="chip chip-warn" tabindex="0" data-tip="' + esc(tip) + '">' + icon('warning') + ' ' + esc(t('bill.scan_diff', money(sc.total, sc.currency, d))) + '</span></div>';
+    }
+    if (B.receipt) {
+      html += '<a href="' + esc(S.receiptUrl(B.receipt)) + '" target="_blank" rel="noopener" aria-label="' + esc(t('bill.receipt_open')) + '">' +
+        '<img class="photo-thumb receipt-thumb" src="' + esc(S.receiptUrl(B.receipt)) + '" alt=""></a>';
+    }
+    if (B.receiptBusy) html += '<div class="assist-status">' + esc(t('bill.receipt_saving')) + '</div>';
+    else if (edit) {
+      html += '<div class="btn-row">' +
+        '<button type="button" class="btn btn-ghost btn-compact" id="receipt-pick">' + icon('receipt') + ' ' + esc(t(B.receipt ? 'bill.receipt_change' : 'bill.receipt_add')) + '</button>' +
+        (B.receipt ? '<button type="button" class="btn btn-ghost btn-compact" id="receipt-drop">' + icon('x') + ' ' + esc(t('bill.receipt_remove')) + '</button>' : '') +
+        '</div>';
+    }
+    box.innerHTML = html;
+    $('receipt-field').hidden = !html;
+  }
+
+  /* A saved bill's story (GET activity), fetched the first time it is opened. */
+  function renderHistory() {
+    var h = $('bill-history');
+    h.hidden = !B.id || !!S.draft;
+    h.open = false;
+    h.dataset.bill = B.id || '';
+    h.dataset.loaded = '';
+    $('bill-history-body').innerHTML = '';
+    setTableEmpty($('bill-history-wrap'), '');
   }
 
   function renderItems() {
@@ -281,6 +334,7 @@
 
   function renderAll() {
     renderPayer();
+    renderReceipt();
     renderMode();
     renderStage();
   }
@@ -450,6 +504,7 @@
       adjs: [], even: active.slice(), evenAuto: true, pcts: {},
       unknown: [], payerUnknown: null, evenUnknown: [], pctUnknown: [],
       tab: S.ai ? 'photo' : 'form', read: false, readOnly: false,
+      receipt: null, receiptBusy: false, payerLocked: false,
     };
   }
 
@@ -457,6 +512,8 @@
     var d = b.dp;
     var st = blank();
     st.id = b.id; st.version = b.version; st.orig = b; st.mode = b.mode; st.payer = b.payer; st.source = b.source;
+    st.receipt = b.receipt || null;
+    st.payerLocked = S.payerLocked(b);
     st.tab = 'form';
     st.evenAuto = false;
     if (b.mode === 'items') {
@@ -502,8 +559,10 @@
     fillFields(b);
     resetInput();
     renderAll();
+    renderHistory();
     var fields = $('bill-fields').querySelectorAll('input, select, textarea, button');
     for (var i = 0; i < fields.length; i++) fields[i].disabled = !!readOnly;
+    if (B.payerLocked) renderPayer(); // the loop above enabled its chips again
     takePeople();
     openModal('modal-bill', {
       initialFocus: B.tab === 'form' ? '#bill-desc' : null,
@@ -548,6 +607,7 @@
 
   window.fillBillFromDraft = function (d) {
     B.draftId = d.draft_id || null;
+    if (d.receipt_id) B.receipt = d.receipt_id;
     B.source = d.source || 'chat';
     if (d.description) $('bill-desc').value = d.description;
     if (d.date) $('bill-date').value = d.date;
@@ -835,6 +895,51 @@
     $(id).addEventListener('change', schedule);
   });
 
+  // ── receipt photo ──
+  $('receipt-box').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button');
+    if (!b || B.readOnly) return;
+    if (b.id === 'receipt-pick') $('receipt-file').click();
+    else if (b.id === 'receipt-drop') { B.receipt = null; renderReceipt(); }
+  });
+  $('receipt-file').addEventListener('change', function () {
+    var f = $('receipt-file').files[0];
+    $('receipt-file').value = '';
+    if (!f) return;
+    if (!/^image\//.test(f.type || '')) return showToast(errMsg('image_invalid', {}), 'error');
+    var bill = B;
+    B.receiptBusy = true;
+    renderReceipt();
+    shrink(f).then(function (small) {
+      return onSplit(function () {
+        var fd = new FormData();
+        fd.append('group_id', S.gid);
+        fd.append('file', small, 'receipt.jpg');
+        return api('receipt/upload', { body: fd });
+      });
+    }).then(function (r) {
+      if (bill !== B) return; // closed or reset meanwhile
+      B.receiptBusy = false;
+      if (r.ok) B.receipt = r.data.receipt_id;
+      else showToast(errMsg(r.code, r.params), 'error');
+      renderReceipt();
+    });
+  });
+
+  $('bill-history').addEventListener('toggle', function () {
+    var h = $('bill-history');
+    if (!h.open || h.dataset.loaded || !h.dataset.bill) return;
+    h.dataset.loaded = '1';
+    var id = h.dataset.bill;
+    api('activity?group_id=' + encodeURIComponent(S.gid) + '&bill_id=' + encodeURIComponent(id)).then(function (r) {
+      if (!B || B.id !== id) return;
+      if (!r.ok) { h.dataset.loaded = ''; return showToast(errMsg(r.code, r.params), 'error'); }
+      var rows = r.data.rows.slice().reverse(); // newest first, as the trip's feed reads
+      $('bill-history-body').innerHTML = S.activityRows(rows);
+      setTableEmpty($('bill-history-wrap'), rows.length ? '' : t('bill.history_empty'));
+    });
+  });
+
   // Receipt total disagrees: one tap adds the gap as an "Other" line.
   $('reconcile').addEventListener('click', function (ev) {
     if (!ev.target.closest('#add-diff')) return;
@@ -867,7 +972,7 @@
     var body = Object.assign(built.payload, {
       bill_id: B.id, version: B.version, client_key: B.id ? null : B.clientKey,
       description: $('bill-desc').value, date: $('bill-date').value, currency: ccy(),
-      source: B.source, draft_id: B.draftId,
+      source: B.source, draft_id: B.draftId, receipt_id: B.receipt,
     });
     S.act('bill/save', body, t('bill.saved'), $('bill-save')).then(function (r) {
       if (r.ok) closeModal('modal-bill');

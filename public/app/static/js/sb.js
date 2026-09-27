@@ -86,10 +86,102 @@
     if (S.offline || !isOpen() || !me || !me.active) return false;
     return isTravel() || (S.view.is_owner && !S.view.bills.length);
   };
+  /* The server's rule (actions.ts _canEditBill): a one-off is its owner's; on
+     a trip, whoever paid and whoever wrote it; the owner only for a payer
+     without an account. */
   S.canEditBill = function (b) {
     if (S.offline || !isOpen()) return false;
-    if (S.view.is_owner) return true;
-    return isTravel() && b.created_by === S.me.user_id;
+    if (!isTravel()) return S.view.is_owner;
+    if (b.created_by === S.me.user_id) return true;
+    var payer = member(b.payer);
+    var pu = payer ? payer.user_id : null;
+    return pu === S.me.user_id || (pu === null && S.view.is_owner);
+  };
+  /* Someone with an account paid: only they move who paid. */
+  S.payerLocked = function (b) {
+    if (!b || !isTravel()) return false;
+    var payer = member(b.payer);
+    return !!(payer && payer.user_id && payer.user_id !== S.me.user_id);
+  };
+  /* How far a custom rate sits from the market it was set against, as a
+     signed percent ("+6.3%"), or null when it is close (under 3%) or there is
+     no market figure. Display only: no money is computed from it. */
+  S.marketGap = function (r) {
+    if (!r || r.source !== 'manual' || !r.market) return null;
+    var v = Number(r.rate), m = Number(r.market);
+    if (!(v > 0) || !(m > 0)) return null;
+    var per = r.inverted ? 1 / v : v; // settlement units per foreign unit, as the market is kept
+    var gap = per / m - 1;
+    if (Math.abs(gap) < 0.03) return null;
+    return (gap > 0 ? '+' : '-') + (Math.abs(gap) * 100).toFixed(1) + '%';
+  };
+  S.marketChip = function (r) {
+    var gap = S.marketGap(r);
+    if (!gap) return '';
+    // Big side first, as the rate itself reads (S.rateText).
+    var m = Number(r.market);
+    var big = m >= 1 ? m : 1 / m;
+    var txt = fmtRate(big >= 1000 ? big.toFixed(0) : big.toFixed(2).replace(/\.?0+$/, ''));
+    var tip = t('rate.market_tip', m >= 1 ? '1 ' + r.currency + ' = ' + txt + ' ' + G().currency : '1 ' + G().currency + ' = ' + txt + ' ' + r.currency);
+    return ' <span class="chip chip-warn" tabindex="0" data-tip="' + esc(tip) + '">' + esc(t('rate.off_market', gap)) + '</span>';
+  };
+
+  // ── activity: who changed what (GET activity) ──
+  function when(iso) {
+    var d = new Date(iso);
+    var time = '';
+    try { time = d.toLocaleTimeString(window.__LANG__ === 'id' ? 'id-ID' : 'en-GB', { hour: '2-digit', minute: '2-digit' }); } catch (e) {}
+    return fmtDate(iso) + (time ? ' ' + time : '');
+  }
+  function receiptLink(id, key) {
+    return '<a href="' + esc(S.receiptUrl(id)) + '" target="_blank" rel="noopener">' + esc(t(key)) + '</a>';
+  }
+  function changeLine(c) {
+    var name = function (id) { return id ? nameOf(id) : '-'; };
+    var dp = function (ccy) { return window.SBEngine.minorUnits(ccy); };
+    if (c.field === 'total') return esc(t('act.ch.total', money(c.from, c.from_currency, dp(c.from_currency)), money(c.to, c.currency, dp(c.currency))));
+    if (c.field === 'payer') return esc(t('act.ch.payer', name(c.from), name(c.to)));
+    if (c.field === 'description') return esc(t('act.ch.description', c.from || '-', c.to || '-'));
+    if (c.field === 'date') return esc(t('act.ch.date', fmtDate(c.from), fmtDate(c.to)));
+    if (c.field === 'split') return esc(t('act.ch.split'));
+    if (c.field === 'receipt') {
+      if (!c.to) return receiptLink(c.from, 'act.ch.receipt_removed');
+      return receiptLink(c.to, c.from ? 'act.ch.receipt_replaced' : 'act.ch.receipt_added');
+    }
+    return '';
+  }
+  function sentence(r) {
+    var by = r.by ? nameOf(r.by) : r.by_name || t(r.kind === 'group.admin_transfer_owner' ? 'act.admin' : 'act.someone');
+    var name = function (id) { return id ? nameOf(id) : '-'; };
+    var key = 'act.' + r.kind;
+    if (t(key) === key) return t('act.other', by);
+    if (/^(payment|transfer)\./.test(r.kind)) return t(key, by, name(r.from), name(r.to));
+    if (r.kind === 'member.rename') return t(key, by, r.from || '-', r.to || '-');
+    if (r.kind === 'rate.set' && r.rate) return t(key, by, S.rateText(r.rate));
+    return t(key, by, r.subject || '-');
+  }
+  /* Table rows, one per logged change: the sentence, when, what moved; the
+     money it concerns on the right. */
+  S.activityRows = function (rows) {
+    return rows.map(function (r) {
+      var lines = (r.changes || []).map(changeLine).filter(Boolean);
+      if (r.kind === 'bill.create' && r.receipt) lines.push(receiptLink(r.receipt, 'act.ch.receipt_added'));
+      var chip = r.kind === 'rate.set' && r.rate ? S.marketChip(r.rate) : '';
+      return '<tr><td>' + esc(sentence(r)) + chip +
+        lines.map(function (l) { return '<div class="tool-sub">' + l + '</div>'; }).join('') +
+        '<div class="tool-sub">' + esc(when(r.at)) + '</div></td>' +
+        '<td class="num">' + (r.money ? moneyHtml(r.money.amount, r.money.currency, r.money.dp) : '') + '</td></tr>';
+    }).join('');
+  };
+
+  /* A kept photo, through the members-only route. */
+  S.receiptUrl = function (id) {
+    return '/app/api/receipt?group_id=' + encodeURIComponent(S.gid) + '&id=' + encodeURIComponent(id);
+  };
+  /* The scan read another total than the bill now says ("Receipt read ..."). */
+  S.scanDiff = function (b) {
+    var sc = b && b.scan;
+    return !!(sc && (sc.total !== String(b.total) || sc.currency !== b.currency));
   };
   S.canAddMember = function () {
     return !S.offline && isOpen() && S.view.is_owner;

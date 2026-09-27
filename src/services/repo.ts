@@ -68,6 +68,10 @@ export interface BillRow {
   created_at: string;
   updated_at: string;
   version: number;
+  /** The bill's photo (receipts.receipt_id), shown through GET receipt. */
+  receipt?: string | null;
+  /** The total the AI read off that photo, when it was scanned. */
+  scan?: { total: string; currency: string } | null;
   items: ItemRow[];
   adjustments: AdjRow[];
   participants: PartRow[];
@@ -104,6 +108,8 @@ export interface RateRow {
   inverted: boolean;
   source: "manual" | "auto";
   set_at: string;
+  /** Settlement units per foreign unit on the market when the rate was set. */
+  market?: string | null;
 }
 
 export interface GroupState {
@@ -137,7 +143,9 @@ const STATE_JSON = `json_build_object(
       'currency', b.currency, 'dp', b.minor_units, 'mode', b.mode, 'total', b.total_minor::text,
       'stated', b.stated_total::text, 'payer', b.payer_member_id::text, 'source', b.source,
       'created_by', b.created_by::text, 'created_at', b.created_at, 'updated_at', b.updated_at,
-      'version', b.version,
+      'version', b.version, 'receipt', b.receipt_id::text,
+      'scan', (SELECT json_build_object('total', r.scanned_total::text, 'currency', r.scanned_currency)
+                 FROM receipts r WHERE r.receipt_id = b.receipt_id AND r.scanned_total IS NOT NULL),
       'items', COALESCE((
         SELECT json_agg(json_build_object(
           'id', i.item_id::text, 'name', i.name, 'qty', i.qty::text, 'amount', i.amount_minor::text,
@@ -171,7 +179,8 @@ const STATE_JSON = `json_build_object(
     SELECT json_agg(json_build_object(
       'currency', r.currency,
       'effective', CASE WHEN r.effective_date = '-infinity'::date THEN '-infinity' ELSE to_char(r.effective_date, 'YYYY-MM-DD') END,
-      'rate', trim_scale(r.rate)::text, 'inverted', r.inverted, 'source', r.source, 'set_at', r.set_at
+      'rate', trim_scale(r.rate)::text, 'inverted', r.inverted, 'source', r.source, 'set_at', r.set_at,
+      'market', trim_scale(r.market_rate)::text
     ) ORDER BY r.currency, r.effective_date)
     FROM fx_rates r WHERE r.group_id = g.group_id), '[]'::json)
 )`;

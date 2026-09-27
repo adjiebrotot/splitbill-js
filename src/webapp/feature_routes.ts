@@ -38,6 +38,24 @@ addRoutes({
       user_id: user.user_id, group_id: form.get("group_id"), bytes, mime: (file as Blob).type || "image/jpeg", caption: form.get("caption") ?? "",
     })));
   },
+  // ── receipt photos (proof) and the change history ──
+  "POST receipt/upload": async (req, ctx) => {
+    const user = need(ctx);
+    const form = await req.formData().catch(() => null);
+    const file = form?.get("file");
+    if (!form || !file || typeof file === "string") return json({ ok: false, code: "image_invalid", params: {} }, 400);
+    const bytes = new Uint8Array(await (file as Blob).arrayBuffer());
+    return answer(await A.run(() => A.uploadReceipt({ user_id: user.user_id, group_id: form.get("group_id"), bytes, mime: (file as Blob).type || "image/jpeg" })));
+  },
+  "GET receipt": async (_req, ctx) => {
+    const r = await A.run(() => A.getReceipt({ user_id: need(ctx).user_id, group_id: ctx.qp.get("group_id"), receipt_id: ctx.qp.get("id") }));
+    if (!r.ok) return answer(r);
+    // A photo never changes under its id; only members fetch it, so no shared cache.
+    return binResponse(r.data.bytes, { "content-type": r.data.type, "cache-control": "private, max-age=604800, immutable", "x-content-type-options": "nosniff" });
+  },
+  "GET activity": async (_req, ctx) => answer(await A.run(() => A.groupActivity({
+    user_id: need(ctx).user_id, group_id: ctx.qp.get("group_id"), bill_id: ctx.qp.get("bill_id") ?? undefined, before: ctx.qp.get("before") ?? undefined,
+  }))),
   "GET draft": async (_req, ctx) => answer(await A.run(() => A.getDraft({ user_id: need(ctx).user_id, draft_id: ctx.qp.get("id") }))),
 
   // ── reports ──

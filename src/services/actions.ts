@@ -18,7 +18,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { atomic, execute, fetchall, fetchone, inTransaction } from "../db";
 import { ActionError, err, fail, ok, type Result } from "../errors";
 import {
-  ADJ_KINDS, allocate, bigSideRate, EngineError, ENGINE_VERSION, findRate, isCurrency, minorUnits, normCurrency, parseMinor, parseRate,
+  ADJ_KINDS, allocate, bigSideRate, EngineError, ENGINE_VERSION, findRate, isCurrency, itemsTotal, minorUnits, normCurrency, parseMinor, parseRate,
   type AdjKind, type BillIn, type GroupOut,
 } from "../engine";
 import { newGroupId, newInviteCode } from "../ids";
@@ -28,7 +28,7 @@ import {
 } from "./ledger";
 import {
   cachedAt, loadGroup, loadGroupsKeyed, lockAndBump, lockGroup, peekGroup, readGroup, readGroups, rememberGroup,
-  type GroupState, type MemberRow,
+  type BillRow, type GroupState, type MemberRow,
 } from "./repo";
 import { findUserByUsername, getMe } from "./user_service";
 import { AiUnavailable } from "./llm_client";
@@ -625,10 +625,39 @@ async function _writeLines(gid: string, billId: string, b: CleanBill): Promise<v
   }
 }
 
-function _canEditBill(c: Ctx, createdBy: string | null): boolean {
-  if (c.isOwner) return true;
-  if (c.s.group.kind === "one_off") return false;
-  return createdBy === c.userId;
+/** The account behind a bill's payer, or null for a member without one. */
+function _payerUser(c: Ctx, b: { payer: string }): string | null {
+  return c.s.members.find((m) => m.id === b.payer)?.user_id ?? null;
+}
+
+/**
+ * Who may change or delete a bill. A one-off is its owner's. On a trip: the
+ * person who paid (it is their money on the line) and the person who wrote
+ * it; the owner only speaks for a payer without an account. The trip owner
+ * cannot rewrite what another member says they paid.
+ */
+function _canEditBill(c: Ctx, b: { payer: string; created_by: string | null }): boolean {
+  if (c.s.group.kind === "one_off") return c.isOwner;
+  if (b.created_by === c.userId) return true;
+  const payer = _payerUser(c, b);
+  if (payer === c.userId) return true;
+  return payer === null && c.isOwner;
+}
+
+/**
+ * The photo a save names. `undefined` keeps an existing bill's photo; null or
+ * "" takes it off (the history keeps it). A photo must belong to this split
+ * and be new, or already this bill's.
+ */
+async function _receiptFor(c: Ctx, raw: unknown, existing: BillRow | null): Promise<string | null> {
+  if (raw === undefined) return existing?.receipt ?? null;
+  if (raw === null || raw === "") return null;
+  const id = String(raw);
+  if (!/^\d{1,18}$/.test(id)) fail("receipt_not_found", {}, 404);
+  const r = await fetchone("SELECT bill_id::text FROM receipts WHERE receipt_id = $1 AND group_id = $2", [id, c.s.group.group_id]);
+  if (!r) fail("receipt_not_found", {}, 404);
+  if (r[0] !== null && r[0] !== undefined && String(r[0]) !== existing?.id) fail("receipt_not_found", {}, 404);
+  return id;
 }
 
 /** Create (no bill_id) or replace (bill_id + version) a bill. */
@@ -641,7 +670,7 @@ export async function saveBill(p: { user_id: string } & Params) {
     const gid = c.s.group.group_id;
     const existing = p.bill_id ? c.s.bills.find((b) => b.id === String(p.bill_id)) : null;
     if (p.bill_id && !existing) fail("bill_not_found", {}, 404);
-    if (existing && !_canEditBill(c, existing.created_by)) fail("bill_edit_forbidden", {}, 403);
+    if (existing && !_canEditBill(c, existing)) fail("bill_edit_forbidden", {}, 403);
     if (existing && Number(p.version) !== existing.version) fail("stale_version", {}, 409);
     if (!existing && c.s.group.kind === "one_off" && !c.isOwner) fail("owner_only", {}, 403);
     if (!existing && c.s.group.kind === "one_off" && c.s.bills.length && !p.client_key) fail("one_off_single_bill");
@@ -655,6 +684,12 @@ export async function saveBill(p: { user_id: string } & Params) {
     if (!existing && c.s.group.kind === "one_off" && c.s.bills.length) fail("one_off_single_bill");
 
     const { bill } = cleanBill(p, { s: c.s, today: _today(c) });
+    // What someone with an account says they paid stays theirs: only they move it.
+    if (existing && c.s.group.kind === "travel" && bill.payer !== existing.payer) {
+      const payer = _payerUser(c, existing);
+      if (payer !== null && payer !== c.userId) fail("bill_payer_locked", {}, 403);
+    }
+    const receipt = await _receiptFor(c, p.receipt_id, existing ?? null);
 
     // New references must be active members; old ones may stay as they were.
     const before = new Set<string>();
@@ -698,6 +733,13 @@ export async function saveBill(p: { user_id: string } & Params) {
       billId = String(r![0]);
     }
     await _writeLines(gid, billId, bill);
+    if (receipt !== (existing?.receipt ?? null)) {
+      await execute(
+        `WITH r AS (UPDATE receipts SET bill_id = $1 WHERE receipt_id = $2::bigint AND bill_id IS NULL)
+         UPDATE bills SET receipt_id = $2::bigint WHERE bill_id = $1`,
+        [billId, receipt],
+      );
+    }
     // A one-off is its bill: the split is named after it (the list, reports, Telegram).
     const name = bill.description.slice(0, 80).trim();
     if (c.s.group.kind === "one_off" && name && name !== c.s.group.name) {
@@ -707,7 +749,7 @@ export async function saveBill(p: { user_id: string } & Params) {
     if (p.draft_id) {
       await execute("UPDATE drafts SET status = 'used' WHERE draft_id = $1 AND group_id = $2 AND status = 'pending'", [String(p.draft_id), gid]);
     }
-    await c.log(existing ? "edit" : "create", "bill", billId, { before: existing ?? null, after: bill });
+    await c.log(existing ? "edit" : "create", "bill", billId, { before: existing ?? null, after: { ...bill, receipt } });
     return { bill_id: billId, duplicate: false };
   });
 }
@@ -717,7 +759,7 @@ export async function deleteBill(p: { user_id: string } & Params) {
     _requireOpen(c);
     const b = c.s.bills.find((x) => x.id === String(p.bill_id ?? ""));
     if (!b) fail("bill_not_found", {}, 404);
-    if (!_canEditBill(c, b.created_by)) fail("bill_edit_forbidden", {}, 403);
+    if (!_canEditBill(c, b)) fail("bill_edit_forbidden", {}, 403);
     await execute("UPDATE bills SET deleted_at = NOW(), updated_by = $1, version = version + 1 WHERE bill_id = $2", [c.userId, b.id]);
     await c.log("delete", "bill", b.id, { before: b });
     return { deleted: true };
@@ -848,7 +890,7 @@ export async function markTransferPaid(p: { user_id: string } & Params) {
       [g.group_id, t.from, t.to, g.currency, g.dp, t.amount, _today(c), t.id, g.round, c.userId],
     );
     await execute("UPDATE settlement_transfers SET status = 'paid' WHERE transfer_id = $1", [t.id]);
-    await c.log("paid", "transfer", t.id);
+    await c.log("paid", "transfer", t.id, { from: t.from, to: t.to, amount: t.amount, currency: c.s.group.currency });
     return { already: false };
   });
 }
@@ -864,7 +906,7 @@ export async function unmarkTransferPaid(p: { user_id: string } & Params) {
     if (t.status !== "paid") return { already: true };
     await execute("UPDATE payments SET voided_at = NOW(), voided_by = $1 WHERE transfer_id = $2 AND voided_at IS NULL", [c.userId, t.id]);
     await execute("UPDATE settlement_transfers SET status = 'pending' WHERE transfer_id = $1", [t.id]);
-    await c.log("unpaid", "transfer", t.id);
+    await c.log("unpaid", "transfer", t.id, { from: t.from, to: t.to, amount: t.amount, currency: c.s.group.currency });
     return { already: false };
   });
 }
@@ -952,6 +994,7 @@ function _requireTravel(c: Ctx): void {
  * any bill or payment would lose its rate.
  */
 export async function setRate(p: { user_id: string } & Params) {
+  const [market] = await _marketFor(p.group_id, [{ currency: p.currency, effective: p.effective }]);
   return write(p.user_id, p.group_id, async (c) => {
     _requireOwner(c);
     _requireOpen(c);
@@ -969,13 +1012,14 @@ export async function setRate(p: { user_id: string } & Params) {
         [gid, normCurrency(rep.currency), _effective(rep.effective)]);
     }
     await execute(
-      `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by)
-       VALUES ($1, $2, $3::date, $4, $5, $6, $7)
+      `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by, market_rate)
+       VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8::numeric)
        ON CONFLICT (group_id, currency, effective_date)
-       DO UPDATE SET rate = EXCLUDED.rate, inverted = EXCLUDED.inverted, source = EXCLUDED.source, set_by = EXCLUDED.set_by, set_at = NOW()`,
-      [gid, currency, effective, rate.text, inverted, source, c.userId],
+       DO UPDATE SET rate = EXCLUDED.rate, inverted = EXCLUDED.inverted, source = EXCLUDED.source, set_by = EXCLUDED.set_by,
+         set_at = NOW(), market_rate = EXCLUDED.market_rate`,
+      [gid, currency, effective, rate.text, inverted, source, c.userId, _marketText(market, currency, c)],
     );
-    await c.log("set", "rate", `${currency}|${effective}`, { rate: rate.text, inverted, source, replaced: rep ?? null });
+    await c.log("set", "rate", `${currency}|${effective}`, { rate: rate.text, inverted, source, market: _marketText(market, currency, c), replaced: rep ?? null });
     c.requireCoverage("rate_needed");
     return { currency, effective, rate: rate.text, inverted };
   });
@@ -1014,9 +1058,36 @@ export async function suggestRate(p: { user_id: string } & Params) {
   return bigSideFirst(r);
 }
 
+/**
+ * The market rate for each rate row a write is about to set, fetched BEFORE
+ * the write (no network call under the group lock). `to` defaults to the
+ * trip's settlement currency. A provider that is down gives null: the rate
+ * still saves, it just carries no market figure to compare with.
+ */
+async function _marketFor(groupId: unknown, rows: { currency: unknown; effective: unknown; to?: string }[]): Promise<{ currency: string; to: string; rate: number | null }[]> {
+  const s = await readGroup(String(groupId ?? ""));
+  if (!s || s.group.kind !== "travel") return rows.map(() => ({ currency: "", to: "", rate: null }));
+  const today = localDate(s.group.timezone);
+  const { marketRate } = await import("../fx_providers");
+  return Promise.all(rows.map(async (r) => {
+    const currency = normCurrency(r.currency);
+    const to = r.to ?? s.group.currency;
+    const eff = String(r.effective ?? "");
+    if (!isCurrency(currency) || !isCurrency(to) || currency === to) return { currency, to, rate: null };
+    const rate = await marketRate(currency, to, isDate(eff) && eff < today ? eff : null).catch(() => null);
+    return { currency, to, rate };
+  }));
+}
+
+/** A fetched market rate as NUMERIC text, when it is for this currency into the trip's. */
+function _marketText(m: { currency: string; to: string; rate: number | null } | undefined, currency: string, c: Ctx, to = c.s.group.currency): string | null {
+  if (!m || m.rate === null || !(m.rate > 0) || m.currency !== currency || m.to !== to) return null;
+  return String(Number(m.rate.toPrecision(12)));
+}
+
 // ── automatic rates ─────────────────────────────────────────────────────────
 
-interface AutoRate { currency: string; effective: string; rate: string; inverted: boolean }
+interface AutoRate { currency: string; effective: string; rate: string; inverted: boolean; market: number }
 
 /**
  * Market rates for trip money in a currency the rate table does not cover
@@ -1050,7 +1121,7 @@ async function _autoRatesFor(groupId: unknown, wants: { currency: unknown; date:
   const out: AutoRate[] = [];
   asks.forEach((a, i) => {
     const r = got[i];
-    if (r !== null) out.push({ currency: a.currency, effective: a.first ? "-infinity" : a.date, ...bigSideFirst(r) });
+    if (r !== null) out.push({ currency: a.currency, effective: a.first ? "-infinity" : a.date, ...bigSideFirst(r), market: r });
   });
   return out;
 }
@@ -1059,9 +1130,9 @@ async function _autoRatesFor(groupId: unknown, wants: { currency: unknown; date:
 async function _addAutoRates(c: Ctx, rates: AutoRate[]): Promise<void> {
   for (const a of rates) {
     const n = await execute(
-      `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by)
-       VALUES ($1, $2, $3::date, $4, $5, 'auto', $6) ON CONFLICT (group_id, currency, effective_date) DO NOTHING`,
-      [c.s.group.group_id, a.currency, a.effective, parseRate(a.rate).text, a.inverted, c.userId],
+      `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by, market_rate)
+       VALUES ($1, $2, $3::date, $4, $5, 'auto', $6, $7::numeric) ON CONFLICT (group_id, currency, effective_date) DO NOTHING`,
+      [c.s.group.group_id, a.currency, a.effective, parseRate(a.rate).text, a.inverted, c.userId, String(Number(a.market.toPrecision(12)))],
     );
     if (n > 0) await c.log("set", "rate", `${a.currency}|${a.effective}`, { rate: a.rate, inverted: a.inverted, source: "auto" });
   }
@@ -1091,6 +1162,9 @@ export async function fillRates(p: { user_id: string } & Params) {
  * bill and payment converts afterwards.
  */
 export async function changeCurrency(p: { user_id: string } & Params) {
+  const to = normCurrency(p.currency);
+  const asked = Array.isArray(p.rates) ? (p.rates as Params[]) : [];
+  const market = isCurrency(to) ? await _marketFor(p.group_id, asked.map((r) => ({ currency: r.currency, effective: r.effective, to }))) : [];
   return write(p.user_id, p.group_id, async (c) => {
     _requireOwner(c);
     _requireOpen(c);
@@ -1101,21 +1175,151 @@ export async function changeCurrency(p: { user_id: string } & Params) {
     const rows = Array.isArray(p.rates) ? (p.rates as Params[]) : [];
     await execute("DELETE FROM fx_rates WHERE group_id = $1", [gid]);
     await execute("UPDATE groups SET currency = $1, minor_units = $2 WHERE group_id = $3", [currency, minorUnits(currency), gid]);
-    for (const r of rows) {
+    for (const [i, r] of rows.entries()) {
       const rc = normCurrency(r.currency);
       if (!isCurrency(rc)) fail("currency_invalid");
       if (rc === currency) continue;
       const { rate, inverted } = bigSideRate(parseRate(r.rate), r.inverted === true);
       await execute(
-        `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by)
-         VALUES ($1, $2, $3::date, $4, $5, 'manual', $6)`,
-        [gid, rc, _effective(r.effective), rate.text, inverted, c.userId],
+        `INSERT INTO fx_rates (group_id, currency, effective_date, rate, inverted, source, set_by, market_rate)
+         VALUES ($1, $2, $3::date, $4, $5, 'manual', $6, $7::numeric)`,
+        [gid, rc, _effective(r.effective), rate.text, inverted, c.userId, _marketText(market[i], rc, c, currency)],
       );
     }
     await c.log("currency", "group", gid, { from: c.s.group.currency, to: currency, rates: rows });
     c.requireCoverage("rate_missing");
     return { currency };
   });
+}
+
+// ── history ─────────────────────────────────────────────────────────────────
+
+/** One field an edit changed. A total names its currency on each side (a bill may change currency). */
+export interface ActivityChange { field: string; from: string | null; to: string | null; from_currency?: string; currency?: string }
+
+/** One logged change, as a member reads it: who, what, and the numbers it moved. */
+export interface ActivityRow {
+  id: string;
+  at: string;
+  /** The member who did it, when their account is in this split; else their name. */
+  by: string | null;
+  by_name: string | null;
+  kind: string;
+  entity_id: string | null;
+  subject: string | null;
+  money: { amount: string; currency: string; dp: number } | null;
+  from?: string | null;
+  to?: string | null;
+  changes?: ActivityChange[];
+  receipt?: string | null;
+  rate?: { currency: string; effective: string; rate: string; inverted: boolean; source: string; market: string | null };
+}
+
+const ACTIVITY_PAGE = 30;
+
+function _money(amount: unknown, currency: unknown): ActivityRow["money"] {
+  const cur = String(currency ?? "");
+  if (amount === null || amount === undefined || !isCurrency(cur)) return null;
+  return { amount: String(amount), currency: cur, dp: minorUnits(cur) };
+}
+
+/** A bill's lines, compared as the engine reads them (order of people ignored). */
+function _linesKey(b: any): string {
+  const ids = (xs: unknown[]) => xs.map(String).sort((x, y) => Number(x) - Number(y));
+  return JSON.stringify([
+    b.mode,
+    (b.items ?? []).map((i: any) => [i.name, Number(i.qty), String(i.amount), ids(i.members ?? [])]),
+    (b.adjustments ?? []).map((a: any) => [a.kind, String(a.amount)]),
+    [...(b.participants ?? [])].sort((x: any, y: any) => Number(x.member) - Number(y.member)).map((x: any) => [String(x.member), x.bp ?? null]),
+  ]);
+}
+
+/** What an edit changed, field by field. */
+export function billChanges(before: any, after: any): ActivityChange[] {
+  const out: ActivityChange[] = [];
+  const same = (a: unknown, b: unknown) => String(a ?? "") === String(b ?? "");
+  if (!same(before.description, after.description)) out.push({ field: "description", from: before.description, to: after.description });
+  if (!same(before.date, after.date)) out.push({ field: "date", from: before.date, to: after.date });
+  if (!same(before.payer, after.payer)) out.push({ field: "payer", from: String(before.payer), to: String(after.payer) });
+  if (!same(before.total, after.total) || !same(before.currency, after.currency)) {
+    out.push({ field: "total", from: String(before.total), to: String(after.total), from_currency: String(before.currency), currency: String(after.currency) });
+  }
+  if (_linesKey(before) !== _linesKey(after)) out.push({ field: "split", from: null, to: null });
+  // Logs written before photos were kept carry no receipt: nothing to compare.
+  if (after.receipt !== undefined && !same(before.receipt, after.receipt)) {
+    out.push({ field: "receipt", from: before.receipt ?? null, to: after.receipt ?? null });
+  }
+  return out;
+}
+
+function _activityRow(r: unknown[], s: GroupState): ActivityRow {
+  const [id, userId, userName, action, entity, entityId, raw, at] = r;
+  const d: any = raw === null || raw === undefined ? {} : typeof raw === "string" ? JSON.parse(raw) : raw;
+  const member = userId ? s.members.find((m) => m.user_id === String(userId)) : null;
+  const row: ActivityRow = {
+    id: String(id), at: new Date(at as string).toISOString(),
+    by: member?.id ?? null, by_name: member ? member.name : userName ? String(userName) : null,
+    kind: `${entity}.${action}`, entity_id: entityId === null || entityId === undefined ? null : String(entityId),
+    subject: null, money: null,
+  };
+  if (entity === "bill") {
+    const b = action === "delete" ? d.before : d.after ?? d.before;
+    if (b) {
+      row.subject = b.description ?? null;
+      row.money = _money(b.total, b.currency);
+      row.from = b.payer ? String(b.payer) : null;
+      if (b.receipt !== undefined) row.receipt = b.receipt;
+    }
+    if (action === "edit" && d.before && d.after) row.changes = billChanges(d.before, d.after);
+  } else if (entity === "payment") {
+    const p = action === "void" ? d.before : d;
+    if (p) { row.money = _money(p.amount, p.currency); row.from = p.from ?? null; row.to = p.to ?? null; }
+  } else if (entity === "transfer") {
+    row.money = _money(d.amount, d.currency);
+    row.from = d.from ?? null;
+    row.to = d.to ?? null;
+  } else if (entity === "rate") {
+    const [currency, effective] = String(entityId ?? "").split("|");
+    row.subject = currency || null;
+    if (action === "set") row.rate = { currency, effective, rate: String(d.rate ?? ""), inverted: d.inverted === true, source: String(d.source ?? "manual"), market: d.market ?? null };
+  } else if (entity === "member") {
+    const m = s.members.find((x) => x.id === row.entity_id);
+    row.subject = d.name ?? d.from ?? m?.name ?? null;
+    if (action === "rename") { row.from = d.from ?? null; row.to = d.to ?? null; }
+  } else if (entity === "group") {
+    if (action === "rename") { row.subject = d.to ?? null; }
+    if (action === "currency") { row.subject = d.to ?? null; }
+    if (action === "admin_transfer_owner") {
+      const m = s.members.find((x) => x.id === String(d.to_member ?? ""));
+      row.subject = m?.name ?? null;
+    }
+  }
+  return row;
+}
+
+/**
+ * Every logged change a member may read: the whole split (newest first,
+ * `before` pages back by event id), or one bill's story (oldest first).
+ */
+export async function groupActivity(p: { user_id: string; group_id: unknown; bill_id?: unknown; before?: unknown }) {
+  const s = await readGroup(String(p.group_id ?? ""));
+  if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
+  const gid = s.group.group_id;
+  const cols = `SELECT e.event_id::text, e.user_id::text, u.display_name, e.action, e.entity, e.entity_id, e.data, e.created_at
+      FROM group_events e LEFT JOIN users u ON u.user_id = e.user_id`;
+  if (p.bill_id !== undefined && p.bill_id !== null && p.bill_id !== "") {
+    const rows = await fetchall(
+      `${cols} WHERE e.group_id = $1 AND e.entity = 'bill' AND e.entity_id = $2 ORDER BY e.event_id LIMIT 200`,
+      [gid, String(p.bill_id)],
+    );
+    return { rows: rows.map((r) => _activityRow(r, s)), more: false };
+  }
+  const before = /^\d{1,18}$/.test(String(p.before ?? "")) ? String(p.before) : null;
+  const rows = await fetchall(
+    `${cols} WHERE e.group_id = $1 AND ($2::bigint IS NULL OR e.event_id < $2::bigint) ORDER BY e.event_id DESC LIMIT ${ACTIVITY_PAGE + 1}`,
+    [gid, before],
+  );
+  return { rows: rows.slice(0, ACTIVITY_PAGE).map((r) => _activityRow(r, s)), more: rows.length > ACTIVITY_PAGE };
 }
 
 // ── reports ─────────────────────────────────────────────────────────────────
@@ -1210,14 +1414,85 @@ export async function aiDraftFromImage(p: { user_id: string; group_id: unknown; 
   await _spendAi(p.user_id, today);
   const { normalizeImage } = await import("./llm_client");
   const { parseReceipt } = await import("./ai_parse");
+  // The photo is kept as the bill's proof while the model reads it.
+  const kept = _storeReceipt(s.group.group_id, p.user_id, p.bytes, p.mime).catch((e) => {
+    console.error("[receipt]", e);
+    return null;
+  });
   try {
     const img = await normalizeImage(p.bytes, p.mime);
     const { draft } = await parseReceipt({ b64: Buffer.from(img.bytes).toString("base64"), mime: img.mime }, String(p.caption ?? ""), ctx, p.source ?? "photo");
-    const draft_id = await _saveDraft(s.group.group_id, p.user_id, draft.source, draft);
-    return { draft_id, ...draft };
+    const receipt = await kept;
+    if (receipt) {
+      const scanned = _scannedTotal(draft);
+      if (scanned !== null) {
+        await execute("UPDATE receipts SET scanned_total = $1, scanned_currency = $2 WHERE receipt_id = $3", [scanned.toString(), draft.currency, receipt]);
+      }
+    }
+    const withReceipt = { ...draft, receipt_id: receipt };
+    const draft_id = await _saveDraft(s.group.group_id, p.user_id, draft.source, withReceipt);
+    return { draft_id, ...withReceipt };
   } catch (e) {
     _aiError(e);
   }
+}
+
+// ── receipt photos ──────────────────────────────────────────────────────────
+
+const RECEIPTS_PER_DAY = Number(process.env.RECEIPT_DAILY_LIMIT || 100);
+
+/** The total a scan read: the printed total, else its lines. Null when it read none. */
+function _scannedTotal(d: { stated_total?: string | null; items?: { amount: string | null }[]; adjustments?: { amount: string }[] }): bigint | null {
+  if (d.stated_total) return BigInt(d.stated_total);
+  const lines = (d.items ?? []).filter((i) => i.amount !== null && i.amount !== "");
+  if (!lines.length) return null;
+  const t = itemsTotal(lines.map((i) => ({ name: "", amount: BigInt(i.amount!), members: [] })), (d.adjustments ?? []).map((a) => ({ kind: "other" as const, amount: BigInt(a.amount) })));
+  return t > 0n ? t : null;
+}
+
+/** Normalise, store, record. Null when this server has no Blob store. */
+async function _storeReceipt(groupId: string, userId: string, bytes: Uint8Array, mime: string): Promise<string | null> {
+  const { normalizeReceipt, receiptStore } = await import("./receipt");
+  const store = receiptStore();
+  if (!store) return null;
+  const n = await fetchone("SELECT COUNT(*) FROM receipts WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 day'", [userId]);
+  if (Number(n?.[0] ?? 0) >= RECEIPTS_PER_DAY) fail("receipt_limit", {}, 429);
+  const webp = await normalizeReceipt(bytes, mime);
+  const url = await store.put(`receipts/${groupId}/r.webp`, webp, "image/webp");
+  const r = await fetchone(
+    "INSERT INTO receipts (group_id, user_id, url, bytes) VALUES ($1, $2, $3, $4) RETURNING receipt_id::text",
+    [groupId, userId, url, webp.length],
+  );
+  return String(r![0]);
+}
+
+/** A photo picked in the bill form (no AI read). The save attaches it. */
+export async function uploadReceipt(p: { user_id: string; group_id: unknown; bytes: Uint8Array; mime: string }) {
+  const s = await readGroup(String(p.group_id ?? ""));
+  if (!s) fail("group_not_found", {}, 404);
+  const me = _meOf(s, p.user_id);
+  if (!me) fail("group_not_found", {}, 404);
+  if (s.group.status !== "open") fail("group_settled", {}, 409);
+  if (!me.active) fail("member_inactive", {}, 403);
+  const { receiptStore } = await import("./receipt");
+  if (!receiptStore()) fail("receipt_unavailable", {}, 503);
+  const receipt_id = await _storeReceipt(s.group.group_id, p.user_id, p.bytes, p.mime);
+  return { receipt_id };
+}
+
+/** A photo's bytes, for a member of its split only (current or replaced ones alike). */
+export async function getReceipt(p: { user_id: string; group_id: unknown; receipt_id: unknown }) {
+  const s = await readGroup(String(p.group_id ?? ""));
+  if (!s || !_meOf(s, p.user_id)) fail("group_not_found", {}, 404);
+  const id = String(p.receipt_id ?? "");
+  if (!/^\d{1,18}$/.test(id)) fail("receipt_not_found", {}, 404);
+  const r = await fetchone("SELECT url FROM receipts WHERE receipt_id = $1 AND group_id = $2", [id, s.group.group_id]);
+  const { receiptStore } = await import("./receipt");
+  const store = receiptStore();
+  if (!r || !store) fail("receipt_not_found", {}, 404);
+  const bytes = await store.get(String(r[0]));
+  if (!bytes) fail("receipt_not_found", {}, 404);
+  return { bytes, type: "image/webp" };
 }
 
 /** A saved draft (Telegram confirm, "Edit in app" link). */
@@ -1411,6 +1686,7 @@ export async function saveDraftAsBill(p: { user_id: string; draft_id: string }) 
     payer: d.payer,
     total: d.total ?? undefined,
     stated_total: d.stated_total ?? null,
+    receipt_id: d.receipt_id ?? undefined,
     items: (d.items ?? []).map((i: any) => ({ ...i, amount: i.amount ?? "" })),
     adjustments: d.adjustments ?? [],
     participants: d.participants ?? [],
@@ -1427,10 +1703,32 @@ export async function cancelDraft(p: { user_id: string; draft_id: string }) {
 
 // ── housekeeping (daily cron) ───────────────────────────────────────────────
 
+/** Photos picked a day ago that no bill took: the file, then the row. */
+async function _pruneReceipts(): Promise<number> {
+  const { receiptStore } = await import("./receipt");
+  const store = receiptStore();
+  if (!store) return 0;
+  const rows = await fetchall(
+    "SELECT receipt_id::text, url FROM receipts WHERE bill_id IS NULL AND created_at < NOW() - INTERVAL '1 day' ORDER BY receipt_id LIMIT 500",
+  );
+  let n = 0;
+  for (const r of rows) {
+    try {
+      await store.del(String(r[1]));
+    } catch (e) {
+      console.error("[receipt] delete", e);
+      continue;
+    }
+    n += await execute("DELETE FROM receipts WHERE receipt_id = $1 AND bill_id IS NULL", [String(r[0])]);
+  }
+  return n;
+}
+
 /** Prune short-lived rows. Never touches bills, payments or the audit log. */
 export async function cleanup() {
   const n = async (sql: string) => execute(sql);
   return {
+    receipts: await _pruneReceipts(),
     drafts: await n("DELETE FROM drafts WHERE expires_at < NOW() - INTERVAL '7 days'"),
     link_codes: await n("DELETE FROM telegram_link_codes WHERE expires_at < NOW() - INTERVAL '1 day'"),
     updates: await n("DELETE FROM telegram_updates WHERE received_at < NOW() - INTERVAL '7 days'"),

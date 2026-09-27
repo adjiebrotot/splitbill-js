@@ -43,7 +43,7 @@ function _int(v: unknown, def: number, min: number, max: number): number {
 /** Core tables first, in the order a reader follows the schema. */
 const TABLE_ORDER = [
   "users", "groups", "members", "bills", "bill_items", "bill_item_members", "bill_adjustments",
-  "bill_participants", "payments", "settlement_transfers", "settlement_rounds", "fx_rates",
+  "bill_participants", "receipts", "payments", "settlement_transfers", "settlement_rounds", "fx_rates",
   "group_events", "drafts", "ai_usage", "email_verifications", "telegram_link_codes",
   "telegram_chats", "telegram_pending", "telegram_updates", "schema_migrations",
 ];
@@ -54,6 +54,8 @@ const MASKED: Record<string, string[]> = {
   email_verifications: ["code_hash"],
   telegram_link_codes: ["code"],
   groups: ["invite_code"],
+  // A receipt's Blob URL opens the photo without a sign-in: members see it through GET receipt.
+  receipts: ["url"],
 };
 
 export const MASK = "(hidden)";

@@ -24,6 +24,13 @@ Every number comes from `src/engine/` (pure, no I/O). Server, browser preview (`
 - Change the engine → run `node scripts/build_engine.mjs` (bundle is checked in; test fails when stale). Bump `ENGINE_VERSION` when a number could change.
 - New invariant or edge case → add it to `tests/unit/engine_*.test.ts` and, if it needs the DB, `tests/unit/db_actions.test.ts` / `scripts/integrity_harness.ts`.
 
+## Bills: who changes them, and the proof
+
+- Trip bill edit / delete (`_canEditBill`, mirrored by `S.canEditBill` in sb.js): whoever paid, whoever wrote it; the owner only when the payer has no account. A one-off stays its owner's. On a trip only the payer (if they have an account) moves who paid (`bill_payer_locked`).
+- Receipt photos (`services/receipt.ts`): normalised to WebP inside the AI pixel budget, stored in Vercel Blob, row in `receipts`, attached by `bills.receipt_id`. The Blob URL never leaves the server: pages load `GET receipt` (members only); the admin viewer masks it. A scan writes `scanned_total`, so a bill whose total moved away shows "Receipt read ...". Replaced photos stay (history links them); never-attached ones are pruned after a day (`cleanup()`).
+- Every member reads the log: `GET activity` (`groupActivity`), the trip's feed and each bill's History. Log what a reader needs to understand the change (amounts, member ids, names).
+- A rate set by hand keeps the market rate beside it (`fx_rates.market_rate`, fetched before `write()`); 3% or more off shows a chip.
+
 ## Automate before asking
 
 If code can do it, do it; an error is only for what code cannot decide. A trip bill or payment in a currency with no rate gets the market rate on save (`_autoRatesFor` fetches BEFORE `write()` through `marketRate` in `fx_providers.ts`: one rate per pair per day, memory then shared `fx_market` table then provider, `_addAutoRates` inserts inside it, source `auto`, first rate of a currency is "from the start"); the page calls `rate/fill` for any gap left. A one-off is named after its bill (`saveBill`), and one left without a bill is deleted (client on close, `cleanup()` after a day).
