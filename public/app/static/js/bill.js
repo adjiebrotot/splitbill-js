@@ -675,14 +675,17 @@
     if (name) takeName(B.unknown, name);
   }
 
-  /* "Ali" or "@ali". Someone already here is picked, never added twice. */
+  /* "Ali" or "@ali". Someone already here is picked, never added twice.
+     "@" is only a username: it matches a linked member, and one with no
+     account is refused by the server ("Username not found"), never added
+     as a plain name. */
   function addPerson(raw, where, name) {
     var v = String(raw || '').trim();
     if (!v) { renderAll(); return Promise.resolve(null); }
     var user = v.charAt(0) === '@';
     var key = (user ? v.slice(1) : v).toLowerCase();
     var hit = S.view.members.filter(function (m) {
-      return m.active && (m.name.toLowerCase() === key || (m.username || '').toLowerCase() === key);
+      return m.active && (user ? (m.username || '').toLowerCase() === key : m.name.toLowerCase() === key || (m.username || '').toLowerCase() === key);
     })[0];
     if (hit) { place(hit.id, where, name); renderAll(); return Promise.resolve(hit.id); }
     return S.act('member/add', user ? { username: v.slice(1) } : { name: v }).then(function (r) {

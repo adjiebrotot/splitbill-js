@@ -141,7 +141,18 @@ export function resolveNames(raw: unknown, ctx: ParseCtx, unknown: Set<string>):
   const out: string[] = [];
   const push = (id: string) => { if (!out.includes(id)) out.push(id); };
   for (const r of Array.isArray(raw) ? raw : []) {
-    const n = String(r ?? "").trim().replace(/^@/, "");
+    const n = String(r ?? "").trim();
+    // "@ali" names an app account: only a member linked to @ali matches, and
+    // an unmatched one stays "@ali" so "+ @ali" checks the account, never
+    // making a plain member called "ali".
+    if (n.startsWith("@")) {
+      const k = n.slice(1).toLowerCase();
+      if (!k) continue;
+      const linked = active.find((m) => (m.username ?? "").toLowerCase() === k);
+      if (linked) push(linked.id);
+      else unknown.add(n);
+      continue;
+    }
     const k = n.toLowerCase();
     if (!k) continue;
     if (ME.has(k)) { push(ctx.sender); continue; }

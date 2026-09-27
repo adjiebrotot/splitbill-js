@@ -309,7 +309,7 @@ export async function createGroup(p: { user_id: string } & Params) {
       const entry = (typeof raw === "object" && raw ? raw : { name: raw }) as Params;
       let userId: string | null = null;
       let display = cleanText(entry.name, 40);
-      if (entry.username) {
+      if (entry.username != null) {
         const u = await findUserByUsername(entry.username);
         if (!u) fail("user_not_found", { username: String(entry.username) });
         if (u.user_id === p.user_id) continue;
@@ -403,12 +403,19 @@ export async function joinByInvite(p: { user_id: string; code: unknown }) {
 
 // ── members ─────────────────────────────────────────────────────────────────
 
+/** "@ali" typed in a Name or @username box: one indexed lookup, before a chip or member is made. */
+export async function checkUsername(p: { user_id: string; username: unknown }) {
+  const u = await findUserByUsername(p.username);
+  if (!u) fail("user_not_found", { username: String(p.username ?? "").trim().replace(/^@/, "") });
+  return { username: u.username, display_name: u.display_name, me: u.user_id === p.user_id };
+}
+
 export async function addMember(p: { user_id: string } & Params) {
   return write(p.user_id, p.group_id, async (c) => {
     _requireOwner(c);
     let userId: string | null = null;
     let display = cleanText(p.name, 40);
-    if (p.username) {
+    if (p.username != null) {
       const u = await findUserByUsername(p.username);
       if (!u) fail("user_not_found", { username: String(p.username) });
       if (c.s.members.some((m) => m.user_id === u.user_id)) fail("member_already");

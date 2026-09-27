@@ -123,6 +123,7 @@ const ROUTES: Record<string, Handler> = {
   "POST invite/join": async (_req, ctx) => answer(await A.run(() => A.joinByInvite({ user_id: need(ctx).user_id, code: ctx.body.code }))),
 
   // ── members ──
+  "GET user/check": async (_req, ctx) => answer(await A.run(() => A.checkUsername({ user_id: need(ctx).user_id, username: ctx.qp.get("u") }))),
   "POST member/add": async (_req, ctx) => answerWrite(ctx, (uid) => A.addMember({ ...ctx.body, user_id: uid })),
   "POST member/rename": async (_req, ctx) => answerWrite(ctx, (uid) => A.renameMember({ ...ctx.body, user_id: uid })),
   "POST member/remove": async (_req, ctx) => answerWrite(ctx, (uid) => A.removeMember({ ...ctx.body, user_id: uid })),

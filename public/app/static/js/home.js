@@ -192,16 +192,29 @@
         esc(p.username ? '@' + p.username : p.name) + ' ×</button>';
     }).join('');
   }
-  function addPerson() {
-    var inp = document.getElementById('new-person');
-    var v = inp.value.trim();
-    if (!v) return;
-    var entry = v.charAt(0) === '@' ? { username: v.slice(1) } : { name: v };
+  function pushPerson(inp, entry) {
     var key = (entry.username || entry.name).toLowerCase();
     if (!people.some(function (p) { return (p.username || p.name).toLowerCase() === key; })) people.push(entry);
     inp.value = '';
     renderPeople();
     inp.focus();
+  }
+  /* "@" is only ever a username: it is looked up first, and one that does
+     not exist stays in the box with a toast, never becoming a plain name. */
+  function addPerson() {
+    var inp = document.getElementById('new-person');
+    var btn = document.getElementById('new-person-add');
+    var v = inp.value.trim();
+    if (!v) return;
+    if (v.charAt(0) !== '@') return pushPerson(inp, { name: v });
+    if (btn.disabled) return;
+    setBusy(btn, true);
+    api('user/check?u=' + encodeURIComponent(v.slice(1))).then(function (r) {
+      setBusy(btn, false);
+      if (!r.ok) { showToast(errMsg(r.code, r.params), 'error'); inp.focus(); return; }
+      if (r.data.me) { inp.value = ''; inp.focus(); return; }
+      pushPerson(inp, { username: r.data.username });
+    });
   }
   document.getElementById('new-person-add').addEventListener('click', addPerson);
   document.getElementById('new-person').addEventListener('keydown', function (ev) {
