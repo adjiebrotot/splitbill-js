@@ -52,6 +52,12 @@ describe("names", () => {
     expect(resolveNames(["Zed"], ctx, unknown)).toEqual([]);
     expect([...unknown]).toEqual(["Zed"]);
   });
+
+  it("@ is a username only: no name match, and an unknown one keeps its @", () => {
+    const unknown = new Set<string>();
+    expect(resolveNames(["@ali", "@BOBBY", "@"], ctx, unknown)).toEqual(["2"]);
+    expect([...unknown]).toEqual(["@ali"]);
+  });
 });
 
 describe("drafts", () => {

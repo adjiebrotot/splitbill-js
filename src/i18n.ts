@@ -493,7 +493,7 @@ export const STRINGS: Record<string, Entry> = {
   "err.stale_version": { en: "Someone edited this bill. Reopen it to see the latest.", id: "Ada yang mengubah bill ini. Buka lagi untuk melihat versi terbaru." },
   "err.settle_incomplete": { en: "Add the missing rates before finalising.", id: "Tambahkan kurs yang kurang sebelum finalisasi." },
   "err.invite_invalid": { en: "This invite link no longer works.", id: "Tautan undangan ini sudah tidak berlaku." },
-  "err.user_not_found": { en: "No app user @{username}.", id: "Tidak ada pengguna @{username}." },
+  "err.user_not_found": { en: "Username not found: @{username}", id: "Nama pengguna tidak ditemukan: @{username}" },
   "err.member_already": { en: "Already a member.", id: "Sudah menjadi anggota." },
   "err.member_unknown": { en: "Someone on this bill is not in this split.", id: "Ada orang di bill ini yang bukan anggota." },
   "err.member_name_taken": { en: "Two members cannot share a name.", id: "Dua anggota tidak boleh bernama sama." },

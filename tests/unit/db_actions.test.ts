@@ -373,6 +373,18 @@ describe.skipIf(!URL)("actions against Postgres", () => {
     offline();
   });
 
+  it("@username: checked before use, an unknown one never becomes a plain name", async () => {
+    expect(await A.checkUsername({ user_id: uid.ali, username: "@BOB" })).toMatchObject({ username: "bob", me: false });
+    expect(await A.checkUsername({ user_id: uid.ali, username: "ali" })).toMatchObject({ me: true });
+    expect(await A.run(() => A.checkUsername({ user_id: uid.ali, username: "@nobody" }))).toMatchObject({ ok: false, code: "user_not_found", params: { username: "nobody" } });
+    const g = await A.createGroup({ user_id: uid.ali, kind: "travel", name: "At", currency: "IDR", members: [] });
+    expect(await A.run(() => A.addMember({ user_id: uid.ali, group_id: g.group_id, username: "nobody" }))).toMatchObject({ ok: false, code: "user_not_found" });
+    expect(await A.run(() => A.addMember({ user_id: uid.ali, group_id: g.group_id, username: "" }))).toMatchObject({ ok: false, code: "user_not_found" });
+    expect(await A.run(() => A.createGroup({ user_id: uid.ali, kind: "travel", name: "At2", currency: "IDR", members: [{ username: "nobody" }] })))
+      .toMatchObject({ ok: false, code: "user_not_found" });
+    expect((await view(g.group_id)).members.map((m) => m.name)).toEqual(["Ali"]);
+  });
+
   it("one-off: named after its bill; one left empty is cleaned up", async () => {
     const g = await A.createGroup({ user_id: uid.ali, kind: "one_off", name: "New bill", currency: "IDR", members: [] });
     let v = await view(g.group_id);
