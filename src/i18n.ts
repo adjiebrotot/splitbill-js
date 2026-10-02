@@ -374,6 +374,8 @@ export const STRINGS: Record<string, Entry> = {
   "rpt.bills": { en: "Bills", id: "Bill" },
   "rpt.paid_by": { en: "paid by {0}", id: "dibayar {0}" },
   "rpt.your_share": { en: "your expense", id: "pengeluaranmu" },
+  "rpt.payer_paid": { en: "{0} paid {1}", id: "{0} bayar {1}" },
+  "rpt.more_bills": { en: "{0} more bills: the PDF report lists them all.", id: "{0} bill lagi: laporan PDF memuat semuanya." },
   "rpt.payments": { en: "Payments", id: "Pembayaran" },
   "rpt.rounding": { en: "Rounding", id: "Pembulatan" },
   "rpt.col_member": { en: "Member", id: "Anggota" },

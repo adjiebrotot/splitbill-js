@@ -6,13 +6,19 @@
  *
  * Heavy modules (Skia, pdf-lib, fonts) load only when a file is rendered
  * (dynamic import from the route). Fonts are Liberation Sans / Mono, read
- * from src/assets/fonts (traced by outputFileTracingIncludes).
+ * from src/assets/fonts (traced by outputFileTracingIncludes). Liberation has
+ * no CJK, Hangul or Thai, so every string is cut into runs and a run the font
+ * cannot draw goes to the first Noto fallback that can (Noto Sans SC also
+ * carries Japanese kana).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ReportDoc, Line } from "./report";
 
 type Font = "sans" | "sansB" | "mono" | "monoB";
+type Fallback = "cjk" | "kr" | "thai";
+type Face = Font | Fallback;
+const FALLBACKS: Fallback[] = ["cjk", "kr", "thai"];
 type RGB = [number, number, number];
 
 const C = {
@@ -44,30 +50,108 @@ interface Row {
   draw: (p: Painter, y: number) => void;
   /** Keep with the next row across a page break (headings). */
   keep?: boolean;
+  /** A bill row (PNG drops the last ones when the image would be too tall). */
+  bill?: boolean;
+}
+
+interface Opts {
+  /** Lines a bill's note may wrap to. */
+  noteLines: number;
+  /** Bills to draw before "N more bills" (PNG height cap). */
+  billLimit?: number;
 }
 
 const FONT_DIR = join(process.cwd(), "src", "assets", "fonts");
-const FILES: Record<Font, string> = {
+const FILES: Record<Face, string> = {
   sans: "LiberationSans-Regular.ttf",
   sansB: "LiberationSans-Bold.ttf",
   mono: "LiberationMono-Regular.ttf",
   monoB: "LiberationMono-Bold.ttf",
+  cjk: "NotoSansSC-Regular.ttf",
+  kr: "NotoSansKR-Hangul.ttf",
+  thai: "NotoSansThai-Regular.ttf",
 };
-const _bytes = new Map<Font, Buffer>();
-function fontBytes(f: Font): Buffer {
+const _bytes = new Map<Face, Buffer>();
+function fontBytes(f: Face): Buffer {
   if (!_bytes.has(f)) _bytes.set(f, readFileSync(join(FONT_DIR, FILES[f])));
   return _bytes.get(f)!;
 }
 
+type Cmap = { hasGlyphForCodePoint(cp: number): boolean };
+let _fontkit: { create(b: Buffer): unknown } | null = null;
+const _cmaps = new Map<Face, Cmap>();
+const _faceOf = new Map<string, Face>();
+
+/** Load what runs() needs; call before the first layout. */
+async function loadCoverage(): Promise<void> {
+  if (!_fontkit) _fontkit = (await import("@pdf-lib/fontkit")).default as unknown as { create(b: Buffer): unknown };
+}
+
+function covers(face: Face, cp: number): boolean {
+  if (!_cmaps.has(face)) _cmaps.set(face, _fontkit!.create(fontBytes(face)) as Cmap);
+  return _cmaps.get(face)!.hasGlyphForCodePoint(cp);
+}
+
+/** Which face draws this code point in a `f` string: `f` itself when it can. */
+function faceFor(cp: number, f: Font): Face {
+  if (cp < 0x250) return f; // Latin: Liberation has it all
+  const k = f + cp;
+  let face = _faceOf.get(k);
+  if (!face) {
+    face = covers(f, cp) ? f : FALLBACKS.find((x) => covers(x, cp)) ?? f;
+    _faceOf.set(k, face);
+  }
+  return face;
+}
+
+/** The string cut where the drawing face changes. */
+function runs(s: string, f: Font): [string, Face][] {
+  const out: [string, Face][] = [];
+  for (const ch of s) {
+    const face = faceFor(ch.codePointAt(0)!, f);
+    const last = out[out.length - 1];
+    if (last && last[1] === face) last[0] += ch;
+    else out.push([ch, face]);
+  }
+  return out;
+}
+
+/** The fallback faces a document needs (a PDF embeds only those). */
+function fallbacksIn(doc: ReportDoc): Fallback[] {
+  const used = new Set<Face>(runs(JSON.stringify(doc), "sans").map((r) => r[1]));
+  return FALLBACKS.filter((f) => used.has(f));
+}
+
 function fit(p: Painter, s: string, f: Font, size: number, max: number): string {
   if (p.measure(s, f, size) <= max) return s;
-  let out = s;
-  while (out && p.measure(out + "…", f, size) > max) out = out.slice(0, -1);
-  return out + "…";
+  const chars = [...s];
+  while (chars.length && p.measure(chars.join("") + "…", f, size) > max) chars.pop();
+  return chars.join("") + "…";
+}
+
+/**
+ * Greedy wrap into at most `maxLines` lines, breaking at a space when there is
+ * one (CJK has none: it breaks anywhere). The last line ends in "…" when cut.
+ */
+function wrap(p: Painter, s: string, f: Font, size: number, max: number, maxLines: number): string[] {
+  const out: string[] = [];
+  let rest = s;
+  while (rest && out.length < maxLines - 1 && p.measure(rest, f, size) > max) {
+    const chars = [...rest];
+    let n = 1;
+    while (n < chars.length && p.measure(chars.slice(0, n + 1).join(""), f, size) <= max) n++;
+    const head = chars.slice(0, n).join("");
+    const sp = head.lastIndexOf(" ");
+    const cut = sp > head.length / 3 ? sp : head.length;
+    out.push(rest.slice(0, cut).trimEnd());
+    rest = rest.slice(cut).trimStart();
+  }
+  if (rest) out.push(fit(p, rest, f, size, max));
+  return out;
 }
 
 /** Everything below the page header, as rows of known height. */
-function layout(doc: ReportDoc, p: Painter, W: number, pad: number): Row[] {
+function layout(doc: ReportDoc, p: Painter, W: number, pad: number, o: Opts): Row[] {
   const rows: Row[] = [];
   const inner = W - pad * 2;
 
@@ -108,9 +192,55 @@ function layout(doc: ReportDoc, p: Painter, W: number, pad: number): Row[] {
     rows.push({
       h: 36,
       keep: true,
-      draw: (pp, y) => pp.text(s.heading.toUpperCase(), pad, y + 26, "sansB", 11, C.muted),
+      draw: (pp, y) => {
+        pp.text(s.heading.toUpperCase(), pad, y + 26, "sansB", 11, C.muted);
+        if (s.kind === "bills") pp.text(s.column.toUpperCase(), pad + inner - 10, y + 26, "sansB", 9, C.muted, "right");
+      },
     });
-    if (s.kind === "table") {
+    if (s.kind === "bills") {
+      const total = s.days.reduce((n, d) => n + d.bills.length, 0);
+      let drawn = 0;
+      for (const d of s.days) {
+        if (o.billLimit !== undefined && drawn >= o.billLimit) break;
+        rows.push({
+          h: 26,
+          keep: true,
+          draw: (pp, y) => {
+            pp.rect(pad, y, inner, 26, C.bg, 0);
+            pp.text(d.date, pad + 2, y + 18, "sansB", 10, C.primaryInk);
+          },
+        });
+        d.bills.forEach((b, i) => {
+          if (o.billLimit !== undefined && drawn >= o.billLimit) return;
+          drawn++;
+          const sw = Math.min(p.measure(b.share, "monoB", 11), inner * 0.5);
+          const sub = wrap(p, [b.meta, b.note].filter(Boolean).join(" · "), "sans", 9, inner - 20, o.noteLines);
+          const h = 26 + sub.length * 12;
+          const last = i === d.bills.length - 1;
+          rows.push({
+            h,
+            bill: true,
+            draw: (pp, y) => {
+              pp.rect(pad, y, inner, h, C.surface, 0);
+              pp.text(fit(pp, b.title, "sansB", 11, inner - sw - 34), pad + 10, y + 17, "sansB", 11, C.text);
+              pp.text(fit(pp, b.share, "monoB", 11, sw), pad + inner - 10, y + 17, "monoB", 11, C.text, "right");
+              sub.forEach((l, k) => pp.text(l, pad + 10, y + 31 + k * 12, "sans", 9, C.muted));
+              if (!last) pp.line(pad + 10, y + h - 0.5, pad + inner - 10, y + h - 0.5, C.border);
+            },
+          });
+        });
+      }
+      if (drawn < total) {
+        const more = s.more.replace("{0}", String(total - drawn));
+        rows.push({
+          h: 30,
+          draw: (pp, y) => {
+            pp.rect(pad, y, inner, 30, C.surface, 0);
+            pp.text(fit(pp, more, "sans", 11, inner - 20), pad + 10, y + 19, "sans", 11, C.muted);
+          },
+        });
+      }
+    } else if (s.kind === "table") {
       // Column widths: figures take what they need, the name gets the rest.
       const sizes = s.columns.map((c, i) => Math.max(
         p.measure(c.toUpperCase(), "sansB", 9),
@@ -190,32 +320,60 @@ function layout(doc: ReportDoc, p: Painter, W: number, pad: number): Row[] {
 
 // ── PNG ─────────────────────────────────────────────────────────────────────
 
+/** Tallest PNG, in layout pixels: past it the last bills give way to "N more bills". */
+const PNG_MAX_H = 12000;
+/** Tallest PNG in device pixels: a long one is drawn at less than 2x. */
+const PNG_MAX_PX = 16000;
+
 export async function renderPng(doc: ReportDoc): Promise<Uint8Array> {
   const { createCanvas, GlobalFonts } = await import("@napi-rs/canvas");
-  const fam: Record<Font, string> = { sans: "SBSans", sansB: "SBSansB", mono: "SBMono", monoB: "SBMonoB" };
-  for (const f of Object.keys(fam) as Font[]) {
+  await loadCoverage();
+  const fam: Record<Face, string> = { sans: "SBSans", sansB: "SBSansB", mono: "SBMono", monoB: "SBMonoB", cjk: "SBCjk", kr: "SBKr", thai: "SBThai" };
+  const need: Face[] = ["sans", "sansB", "mono", "monoB", ...fallbacksIn(doc)];
+  for (const f of need) {
     if (!GlobalFonts.has(fam[f])) GlobalFonts.register(fontBytes(f), fam[f]);
   }
-  const W = 540, PAD = 24, SCALE = 2;
+  const W = 540, PAD = 24;
   const probe = createCanvas(10, 10).getContext("2d");
-  const measure = (s: string, f: Font, size: number) => {
-    probe.font = `${size}px "${fam[f]}"`;
+  const runWidth = (s: string, face: Face, size: number) => {
+    probe.font = `${size}px "${fam[face]}"`;
     return probe.measureText(s).width;
   };
-  const rows = layout(doc, { measure, text() {}, rect() {}, line() {} }, W, PAD);
-  const H = rows.reduce((h, r) => h + r.h, 0) + PAD;
-  const canvas = createCanvas(W * SCALE, H * SCALE);
+  const measure = (s: string, f: Font, size: number) => runs(s, f).reduce((w, [t, face]) => w + runWidth(t, face, size), 0);
+  const dry: Painter = { measure, text() {}, rect() {}, line() {} };
+  const height = (rs: Row[]) => rs.reduce((h, r) => h + r.h, 0) + PAD;
+  let rows = layout(doc, dry, W, PAD, { noteLines: 2 });
+  if (height(rows) > PNG_MAX_H) {
+    // Drop bills from the end until it fits, room left for the "N more" line.
+    const bills = rows.filter((r) => r.bill);
+    let over = height(rows) - PNG_MAX_H + 30, keep = bills.length;
+    while (keep > 0 && over > 0) over -= bills[--keep].h + 4;
+    rows = layout(doc, dry, W, PAD, { noteLines: 2, billLimit: keep });
+  }
+  const H = height(rows);
+  const SCALE = Math.max(1, Math.min(2, PNG_MAX_PX / H));
+  const canvas = createCanvas(Math.round(W * SCALE), Math.round(H * SCALE));
   const ctx = canvas.getContext("2d");
   ctx.scale(SCALE, SCALE);
   const css = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
   const painter: Painter = {
     measure,
     text(s, x, y, f, size, color, align = "left") {
-      ctx.font = `${size}px "${fam[f]}"`;
       ctx.fillStyle = css(color);
-      ctx.textAlign = align;
+      ctx.strokeStyle = css(color);
+      ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
-      ctx.fillText(s, x, y);
+      let cx = align === "right" ? x - measure(s, f, size) : x;
+      for (const [t, face] of runs(s, f)) {
+        ctx.font = `${size}px "${fam[face]}"`;
+        ctx.fillText(t, cx, y);
+        // The fallbacks have no bold: thicken them where the line is bold.
+        if (face !== f && (f === "sansB" || f === "monoB")) {
+          ctx.lineWidth = size / 22;
+          ctx.strokeText(t, cx, y);
+        }
+        cx += runWidth(t, face, size);
+      }
     },
     rect(x, y, w, h, color, radius = 0) {
       ctx.fillStyle = css(color);
@@ -266,15 +424,27 @@ export async function renderPdf(doc: ReportDoc): Promise<Uint8Array> {
   pdf.registerFontkit(fontkit);
   pdf.setTitle(`${doc.title} · ${doc.subtitle}`);
   pdf.setProducer("Split Bill");
+  await loadCoverage();
   const fonts = {
     sans: await pdf.embedFont(fontBytes("sans"), { subset: true }),
     sansB: await pdf.embedFont(fontBytes("sansB"), { subset: true }),
     mono: await pdf.embedFont(fontBytes("mono"), { subset: true }),
     monoB: await pdf.embedFont(fontBytes("monoB"), { subset: true }),
-  };
+  } as Record<Face, Awaited<ReturnType<typeof pdf.embedFont>>>;
+  // pdf-lib's own subsetter drops glyphs from the big Noto fonts: HarfBuzz cuts
+  // each fallback down to this document's characters, embedded whole.
+  const fallbacks = fallbacksIn(doc);
+  if (fallbacks.length) {
+    const subsetFont = (await import("subset-font")).default;
+    const chars = JSON.stringify(doc);
+    const all = chars + chars.toUpperCase() + "…";
+    for (const f of fallbacks) {
+      fonts[f] = await pdf.embedFont(await subsetFont(fontBytes(f), all, { targetFormat: "truetype" }), { subset: false });
+    }
+  }
   const PW = 595.28, PH = 841.89, PAD = 40;
-  const measure = (s: string, f: Font, size: number) => fonts[f].widthOfTextAtSize(s, size);
-  const rows = layout(doc, { measure, text() {}, rect() {}, line() {} }, PW, PAD);
+  const measure = (s: string, f: Font, size: number) => runs(s, f).reduce((w, [t, face]) => w + (fonts[face] ?? fonts[f]).widthOfTextAtSize(t, size), 0);
+  const rows = layout(doc, { measure, text() {}, rect() {}, line() {} }, PW, PAD, { noteLines: 12 });
   const col = (c: RGB) => rgb(c[0] / 255, c[1] / 255, c[2] / 255);
 
   let page = pdf.addPage([PW, PH]);
@@ -298,8 +468,14 @@ export async function renderPdf(doc: ReportDoc): Promise<Uint8Array> {
   const painter: Painter = {
     measure,
     text(s, x, y, f, size, color, align = "left") {
-      const w = measure(s, f, size);
-      page.drawText(s, { x: align === "right" ? x - w : x, y: PH - y, size, font: fonts[f], color: col(color) });
+      let cx = align === "right" ? x - measure(s, f, size) : x;
+      for (const [t, face] of runs(s, f)) {
+        const font = fonts[face] ?? fonts[f];
+        page.drawText(t, { x: cx, y: PH - y, size, font, color: col(color) });
+        // The fallbacks have no bold: a second pass a hair to the right thickens them.
+        if (face !== f && (f === "sansB" || f === "monoB")) page.drawText(t, { x: cx + size / 30, y: PH - y, size, font, color: col(color) });
+        cx += font.widthOfTextAtSize(t, size);
+      }
     },
     rect(x, y, w, h, color) {
       page.drawRectangle({ x, y: PH - y - h, width: w, height: h, color: col(color) });

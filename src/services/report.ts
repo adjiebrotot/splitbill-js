@@ -18,9 +18,22 @@ export interface Line {
   indent?: boolean;
 }
 
+/** One bill in an individual report: one row, however many items it has. */
+export interface BillRow {
+  title: string;
+  /** "Harso Adjie paid CNY 22.00". */
+  meta: string;
+  /** How the share was reached: "Evenly (1/2)", "50%", or the items "Lamian (1/2) 6.00 · Tea 2.00". */
+  note: string;
+  /** The reader's expense on this bill ("-" when they only paid). */
+  share: string;
+}
+
 export type Section =
   | { heading: string; kind: "table"; columns: string[]; right: boolean[]; rows: string[][] }
-  | { heading: string; kind: "lines"; lines: Line[] };
+  | { heading: string; kind: "lines"; lines: Line[] }
+  /** Bills by day, one compact row each, so a trip of hundreds of bills stays readable. */
+  | { heading: string; kind: "bills"; column: string; days: { date: string; bills: BillRow[] }[]; /** "{0} more bills..." when a PNG cuts the list. */ more: string };
 
 export interface ReportDoc {
   title: string;
@@ -155,7 +168,7 @@ export function groupReport(v: View, lang: string, now = new Date()): ReportDoc 
 }
 
 /** One member's lines on one bill, adding up exactly to their share x. */
-function billLines(b: View["bills"][number], memberId: string, lang: string): Line[] {
+export function billLines(b: View["bills"][number], memberId: string, lang: string): Line[] {
   const x = BigInt(String(b.shares[memberId]?.[0] ?? "0"));
   if (x === 0n) return [];
   const out: Line[] = [];
@@ -177,7 +190,7 @@ function billLines(b: View["bills"][number], memberId: string, lang: string): Li
     if (adj !== 0n && itemsSub > 0n) {
       const shown = roundHalfEven(adj * sub.num, itemsSub * sub.den);
       listed += shown;
-      out.push({ text: b.adjustments.map((a) => t("adj." + a.kind, lang)).join(", "), right: formatAmount(shown, b.dp, lang), indent: true });
+      if (shown !== 0n) out.push({ text: b.adjustments.map((a) => t("adj." + a.kind, lang)).join(", "), right: formatAmount(shown, b.dp, lang), indent: true });
     }
   } else if (b.mode === "even") {
     listed = x;
@@ -212,23 +225,24 @@ export function memberReport(v: View, memberId: string, lang: string, now = new 
   if (get.length) sections.push({ heading: t("rpt.you_get", lang), kind: "lines", lines: xfer(get, "from") });
   if (!pay.length && !get.length) sections.push({ heading: t("rpt.transfers", lang), kind: "lines", lines: [{ text: t("rpt.none", lang), muted: true }] });
 
-  const billL: Line[] = [];
+  const days: { date: string; bills: BillRow[] }[] = [];
   for (const b of v.bills) {
     const mine = b.shares[memberId];
-    const paid = b.payer === memberId;
-    if (!mine && !paid) continue;
-    billL.push({
-      text: `${fmtDate(b.date, lang)} · ${b.description} · ${tf("rpt.paid_by", lang, nm.get(b.payer) ?? "?")}`,
-      right: money(b.total, b.currency, b.dp, lang),
-      bold: true,
+    if (!mine && b.payer !== memberId) continue;
+    const date = fmtDate(b.date, lang);
+    if (days[days.length - 1]?.date !== date) days.push({ date, bills: [] });
+    const lines = billLines(b, memberId, lang);
+    // Even and percent splits have one line whose figure IS the share: the label says it all.
+    const note = b.mode === "items" ? lines.map((l) => `${l.text} ${l.right}`).join(" · ") : lines.map((l) => l.text).join(" · ");
+    const conv = mine && b.currency !== g.currency && mine[1] != null ? ` = ${money(mine[1], g.currency, g.dp, lang)}` : "";
+    days[days.length - 1].bills.push({
+      title: b.description,
+      meta: tf("rpt.payer_paid", lang, nm.get(b.payer) ?? "?", money(b.total, b.currency, b.dp, lang)),
+      note,
+      share: mine ? money(mine[0], b.currency, b.dp, lang) + conv : "-",
     });
-    billL.push(...billLines(b, memberId, lang));
-    if (mine) {
-      const conv = b.currency !== g.currency && mine[1] != null ? ` = ${money(mine[1], g.currency, g.dp, lang)}` : "";
-      billL.push({ text: t("rpt.your_share", lang), right: money(mine[0], b.currency, b.dp, lang) + conv, indent: true });
-    }
   }
-  if (billL.length) sections.push({ heading: t("rpt.bills", lang), kind: "lines", lines: billL });
+  if (days.length) sections.push({ heading: t("rpt.bills", lang), kind: "bills", column: t("rpt.your_share", lang), days, more: t("rpt.more_bills", lang) });
 
   const payL: Line[] = v.payments.filter((p) => p.from === memberId || p.to === memberId).map((p) => ({
     text: `${fmtDate(p.date, lang)} · ${nm.get(p.from)} → ${nm.get(p.to)}`,
@@ -269,6 +283,12 @@ export function renderText(doc: ReportDoc): string {
     if (s.kind === "table") {
       for (const r of s.rows) {
         out.push(`${r[0]}: ` + r.slice(1).map((c, i) => `${s.columns[i + 1].toLowerCase()} ${c}`).join(", "));
+      }
+    } else if (s.kind === "bills") {
+      out.push(`(${s.column})`);
+      for (const d of s.days) {
+        out.push(d.date);
+        for (const b of d.bills) out.push(`  ${b.title}: ${b.share}`, `    ${[b.meta, b.note].filter(Boolean).join(" · ")}`);
       }
     } else {
       for (const l of s.lines) out.push(`${l.indent ? "  " : ""}${l.text}${l.right ? ": " + l.right : ""}`);
