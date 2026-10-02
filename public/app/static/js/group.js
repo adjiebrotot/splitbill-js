@@ -748,6 +748,13 @@
         }).join('') + '</tr></thead><tbody>' + sec.rows.map(function (r) {
           return '<tr>' + r.map(function (c, i) { return '<td' + (sec.right[i] ? ' class="num"' : '') + '>' + esc(c) + '</td>'; }).join('') + '</tr>';
         }).join('') + '</tbody>';
+      } else if (sec.kind === 'bills') {
+        h += '<thead><tr><th></th><th class="num">' + esc(sec.column) + '</th></tr></thead><tbody>' + sec.days.map(function (d) {
+          return '<tr class="muted strong"><td colspan="2">' + esc(d.date) + '</td></tr>' + d.bills.map(function (b) {
+            return '<tr><td>' + esc(b.title) + '<div class="tool-sub">' + esc([b.meta, b.note].filter(Boolean).join(' · ')) + '</div></td>' +
+              '<td class="num">' + esc(b.share) + '</td></tr>';
+          }).join('');
+        }).join('') + '</tbody>';
       } else {
         h += '<tbody>' + sec.lines.map(function (l) {
           var cls = (l.muted ? ' muted' : '') + (l.bold ? ' strong' : '');

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { compute, viewOf, stageOf } from "@/services/ledger";
-import { groupReport, memberReport, renderText, fmtRate } from "@/services/report";
+import { groupReport, memberReport, renderText, fmtRate, billLines } from "@/services/report";
 import { formatAmount } from "@/engine";
 import type { GroupState } from "@/services/repo";
 
@@ -140,16 +140,16 @@ describe("reports", () => {
       const s = state(seed);
       const v = viewOf(s, compute(s), "u1");
       for (const m of v.members) {
-        const doc = memberReport(v, m.id, "en");
-        const bills = doc.sections.find((x) => x.heading === "Bills");
-        if (!bills || bills.kind !== "lines") continue;
-        let sum = 0n;
-        for (const l of bills.lines) {
-          if (!l.indent) { sum = 0n; continue; }
-          const val = BigInt((l.right ?? "0").replace(/^[A-Z]{3} /, "").split(" ")[0].replace(/[,.]/g, ""));
-          if (l.text === "your expense") expect(val, `seed ${seed} member ${m.id}`).toBe(sum);
-          else sum += val;
+        for (const b of v.bills) {
+          const share = BigInt(String(b.shares[m.id]?.[0] ?? "0"));
+          const sum = billLines(b, m.id, "en").reduce((t, l) => t + BigInt((l.right ?? "0").replace(/[,.]/g, "")), 0n);
+          expect(sum, `seed ${seed} member ${m.id} bill ${b.id}`).toBe(share);
         }
+        // One row per bill the member paid or shares, grouped by day.
+        const doc = memberReport(v, m.id, "en");
+        const bills = doc.sections.find((x) => x.kind === "bills");
+        const mine = v.bills.filter((b) => b.shares[m.id] || b.payer === m.id).length;
+        expect(bills && bills.kind === "bills" ? bills.days.reduce((n, d) => n + d.bills.length, 0) : 0).toBe(mine);
       }
     }
   });
@@ -169,4 +169,33 @@ describe("reports", () => {
     const pdf = await renderPdf(doc);
     expect(Buffer.from(pdf.slice(0, 5)).toString()).toBe("%PDF-");
   });
+
+  it("draws CJK, kana, Hangul and Thai, and keeps a trip of 300 bills short", async () => {
+    const s = state(7);
+    const names = ["拉面 Lamian", "ラーメン", "김치찌개", "ผัดไทย", "Kopi"];
+    const base = s.bills[0];
+    s.bills = Array.from({ length: 300 }, (_, i) => ({
+      ...base, id: String(i + 1), description: names[i % names.length] + " " + i, date: `2026-09-${String(1 + Math.floor(i / 20)).padStart(2, "0")}`,
+      items: base.items.map((it) => ({ ...it, name: "牛肉面" + it.name })),
+    }));
+    const v = viewOf(s, compute(s), "u1");
+    const m = v.members.find((x) => v.bills.some((b) => b.shares[x.id]))!;
+    const doc = memberReport(v, m.id, "en");
+    const { renderPng, renderPdf } = await import("@/services/report_binary");
+    const png = await renderPng(doc);
+    // IHDR height: capped, however many bills.
+    const h = Buffer.from(png).readUInt32BE(20);
+    expect(h).toBeLessThanOrEqual(16000);
+    const pdf = Buffer.from(await renderPdf(doc));
+    expect(pdf.slice(0, 5).toString()).toBe("%PDF-");
+    // The fallback fonts are embedded (subset), Liberation alone has no CJK.
+    const { PDFDocument, PDFDict, PDFName } = await import("pdf-lib");
+    const loaded = await PDFDocument.load(pdf);
+    const fonts = loaded.context.enumerateIndirectObjects()
+      .map(([, o]) => (o instanceof PDFDict ? String(o.get(PDFName.of("BaseFont")) ?? "") : ""))
+      .join(" ");
+    expect(fonts).toMatch(/NotoSansSC/);
+    expect(fonts).toMatch(/NotoSansKR/);
+    expect(fonts).toMatch(/NotoSansThai/);
+  }, 60000);
 });

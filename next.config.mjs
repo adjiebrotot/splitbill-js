@@ -10,7 +10,7 @@ const nextConfig = {
   // empty module, ws takes that for the native addon, and every frame of 48+
   // bytes throws "b.mask is not a function". Reads go over HTTP and still
   // work, so only writes and migrations fail. tests/unit/next_config.test.ts.
-  serverExternalPackages: ["@napi-rs/canvas", "@node-rs/bcrypt", "pg", "ws"],
+  serverExternalPackages: ["@napi-rs/canvas", "@node-rs/bcrypt", "pg", "ws", "subset-font", "harfbuzzjs"],
   // Report fonts are read from disk at render time (src/services/report_binary.ts).
   // Only the routes that can emit a PNG/PDF trace them in.
   outputFileTracingIncludes: {
